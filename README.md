@@ -23,5 +23,18 @@ playwright install chromium
 python scripts/check_env.py
 ```
 
+## Phase 1: 합성 데이터셋 생성
+
+```powershell
+# configs/base.yaml + configs/datagen.yaml 설정으로 data/ 에 생성 (기본 1만 쌍, seed 42)
+python -m src.datagen.build_dataset
+# 생성된 샘플 일부를 새 브라우저로 다시 만들어 HTML/PNG 해시가 같은지 확인
+python scripts/check_datagen_repro.py --num 100
+```
+
+출력: `data/{id}.html`, `data/{id}.png`, `data/metadata.jsonl`(시드, train/val 분할, 해시),
+`data/render_env.json`(브라우저 버전, viewport, 폰트, 생성 설정, git commit), 실패 시 `data/failures.jsonl`.
+폰트는 Arial 고정이며 렌더링 때만 `render.base_css`로 주입한다 (저장되는 HTML에는 없음).
+
 `check_env.py`는 패키지 import, torch 장치(CUDA/ROCm/MPS/DirectML/CPU), Playwright 렌더링과 렌더 결과 재현성, 디스크 여유 공간을 검사한다.
 `[FAIL]`이 하나라도 있으면 종료 코드 1을 반환한다. GPU 가속이 없는 것은 `[WARN]`이며, 학습은 클라우드 GPU를 쓰는 것을 전제로 한다.

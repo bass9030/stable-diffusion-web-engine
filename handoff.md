@@ -1,6 +1,6 @@
 # handoff.md — stable-diffusion-engine
 
-작성 시점: 2026-10-18 (Phase 0 완료: 사용자 PC에서 check_env.py FAIL 0 확인)
+작성 시점: 2026-10-18 (Phase 1 완료: 1만 쌍 데이터셋 생성 및 시드 재현성 확인)
 프로젝트 루트: `C:\Users\bass9030\codes\stable-diffusion-engine`
 
 ## 1. 프로젝트 개요
@@ -17,6 +17,8 @@
 2. `CLAUDE.md` 작성: Phase 0~4 계획과 작업 가이드라인.
 3. 작업 위치를 로컬 폴더 `stable-diffusion-engine`으로 지정받아, 이후 프로젝트 데이터는 모두 이 폴더에 작성하기로 함.
 4. Phase 0 수행: 디렉터리 구조, 의존성 파일, 설정 파일, 환경 점검 스크립트, README, .gitignore 작성. `CLAUDE.md`를 새 이름/경로에 맞게 수정.
+5. Phase 0 마무리: 사용자 PC에서 설치 및 check_env.py FAIL 0 확인, `git init` 후 첫 커밋(a2788e9).
+6. Phase 1 수행: HTML 생성기·렌더러·데이터셋 빌드·재현성 검사 스크립트 작성, 1만 쌍 생성.
 
 ## 3. 결정된 사항
 
@@ -62,6 +64,23 @@ requirements-torch.txt: torch 2.14.1, torchvision 0.29.1.
 7. 디스크 여유 공간 (20GB 미만이면 WARN).
 - stdout을 UTF-8로 재설정해 Windows 콘솔에서도 한국어 출력되도록 처리.
 
+## 4-1. Phase 1 구현 (합성 데이터셋)
+
+- `configs/base.yaml`: `render.font_family: Arial`, `render.base_css: "body{font-family:Arial}"` 추가.
+- `configs/datagen.yaml`: 생성 개수 10000, val_ratio 0.05, 컴포넌트 가중치/개수 범위 등 생성기 파라미터.
+- `src/datagen/config.py`: yaml 여러 개를 깊은 병합 (base → datagen).
+- `src/datagen/html_gen.py`: `generate_html(seed, GenConfig)`. 컴포넌트 heading/paragraph/button/box/columns(2~3칼럼, flex). 3자리 hex 팔레트, 영문 단어 목록. `random.Random(seed)`만 사용해 결정적.
+- `src/datagen/renderer.py`: `Renderer` (Playwright Chromium, JS 끔, 모든 네트워크 요청 abort, 페이지 1개 재사용). 렌더링 때 `<style>{base_css}</style>`를 HTML 앞에 붙임 → 저장되는 HTML(모델 입력)에는 폰트 지정이 없음.
+- `src/datagen/build_dataset.py` (`python -m src.datagen.build_dataset`): 샘플 시드 = sha256("html:{base_seed}:{index}") 앞 8바이트, 분할 = 샘플 시드 해시로 결정(val_ratio). 출력 `data/{id}.html|png`, `metadata.jsonl`(id, index, seed, split, html_chars, 해시), `render_env.json`(브라우저/playwright 버전, render/generator 설정, platform, git commit, git_dirty), 실패 시 `failures.jsonl` + 종료 코드 1. 기존 metadata.jsonl이 있으면 `--overwrite` 필요.
+- `scripts/check_datagen_repro.py`: render_env.json 기준으로 무작위 샘플을 새 브라우저에서 재생성해 HTML/PNG 해시·분할 비교.
+
+### 생성 결과 (data/)
+- 10000쌍, 렌더링 실패 0, val 517 / train 9483. Chromium 156.0.8078.4, 약 25장/초.
+- 재현성: 무작위 100개 재생성 결과 HTML/PNG/분할 모두 일치. (40개 테스트셋에서도 일치)
+- HTML 길이(40개 테스트 기준): 최소 120자, 중앙값 282자, 최대 1122자 → 다수가 CLIP 77토큰을 넘을 것으로 예상(토큰 수는 미측정).
+- 주의: 이 데이터는 Phase 1 코드가 커밋되기 전에 생성되어 render_env.json의 git_commit이 a2788e9(Phase 0)로 기록됨. `git_dirty` 필드는 생성 이후 추가됨. 생성 로직은 이후 커밋과 동일(재생성 시 해시 일치 확인 가능).
+- 알려진 한계: 글자 색을 배경과 무관하게 팔레트에서 골라 대비가 낮아 거의 안 보이는 글자가 일부 있음 (글자 복원은 비목표라 유지).
+
 ## 5. 검증 상태
 
 - `check_env.py` 문법 검사 통과.
@@ -79,6 +98,7 @@ requirements-torch.txt: torch 2.14.1, torchvision 0.29.1.
 
 1. (완료) 사용자 PC에서 Phase 0 마무리.
 2. 학습 장소 결정 미정: 로컬 GPU는 VRAM 6GB(GTX 1660 SUPER). SD 1.5 LoRA는 메모리 절감 옵션을 쓰면 가능할 수도 있으나 미검증(추측). GTX 16xx 계열은 fp16에서 NaN/검은 이미지 문제가 보고된 바 있어 확인 필요(추측, 공식 확인 안 됨). Phase 2 overfit 테스트 때 로컬에서 시도해보고 안 되면 클라우드 사용.
-3. Phase 1 시작: 템플릿 기반 HTML 생성기(div, 배경색, 제목/문단, 버튼, 2~3칼럼 등을 무작위 조합), Playwright 렌더러, 저장 형식 `data/{id}.html`, `data/{id}.png`, `metadata.jsonl`, 초기 5천~1만 쌍, 시드 재현성 확인. 폰트 1종 고정 필요.
+3. (완료) Phase 1: 템플릿 기반 HTML 생성기(div, 배경색, 제목/문단, 버튼, 2~3칼럼 등을 무작위 조합), Playwright 렌더러, 저장 형식 `data/{id}.html`, `data/{id}.png`, `metadata.jsonl`, 초기 5천~1만 쌍, 시드 재현성 확인. 폰트 1종 고정 필요.
 4. 알려진 잔여물: `scripts/__pycache__/`가 남아 있음 (삭제 권한이 없어 지우지 못함, .gitignore에 포함).
 5. git 저장소 초기화 완료 (브랜치 `main`, Phase 0 산출물로 첫 커밋). 원격 저장소는 없음.
+6. Phase 2 시작 전 할 일: CLIP 토크나이저로 HTML 토큰 수 분포를 측정하고, 77토큰 이내 샘플만 쓰거나 Phase 2용 축소 설정(`configs/datagen_short.yaml` 등)으로 별도 생성할지 결정.

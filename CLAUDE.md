@@ -99,7 +99,7 @@ stable-diffusion-engine/
 ## 6. 마일스톤 체크리스트
 
 - [x] Phase 0: 환경 점검 스크립트(`python scripts/check_env.py`)를 사용자 PC에서 실행해 FAIL 없음 확인 (2026-10-18, OK 24 / WARN 1 / FAIL 0)
-- [ ] Phase 1: 1만 쌍 데이터셋 생성, 시드 재현성 확인
+- [x] Phase 1: 1만 쌍 데이터셋 생성, 시드 재현성 확인 (2026-10-18, 실패 0, val 517, 재현성 100/100 일치)
 - [ ] Phase 2: 짧은 HTML 입력 모델이 학습·추론까지 동작
 - [ ] Phase 3: 긴 HTML 조건 입력 구현 및 학습
 - [ ] Phase 4: 검증셋 지표 측정, 버전별 비교표 작성

@@ -1,0 +1,26 @@
+# Phase 1 합성 데이터셋 생성 설정. base.yaml 위에 덮어써서 사용한다.
+dataset:
+  num_samples: 10000
+  # 검증셋 비율. 샘플 시드로 결정되며 학습 중 노출하지 않는다.
+  val_ratio: 0.05
+
+generator:
+  # body 바로 아래에 놓이는 컴포넌트 수 범위 (포함)
+  min_components: 1
+  max_components: 5
+  # 최상위 컴포넌트 종류별 가중치
+  component_weights:
+    heading: 3
+    paragraph: 3
+    button: 2
+    box: 3
+    columns: 2
+  # 칼럼 레이아웃의 칼럼 수 범위와 칼럼당 자식 수 범위
+  min_columns: 2
+  max_columns: 3
+  max_column_children: 2
+  # 문단 단어 수 범위
+  min_paragraph_words: 4
+  max_paragraph_words: 16
+  # body 배경을 흰색 이외의 색으로 할 확률
+  colored_body_prob: 0.4

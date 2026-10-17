@@ -10,3 +10,8 @@ render:
     width: 512
     height: 512
   device_scale_factor: 1
+  # 폰트는 시스템 폰트 1종으로 고정 (CLAUDE.md Phase 1). 데이터 생성 PC(Windows) 기본 폰트.
+  font_family: Arial
+  # 렌더링 시 HTML 앞에 붙이는 기본 스타일. 저장되는 .html(모델 입력)에는 포함하지 않는다.
+  # 모든 샘플에 동일하게 적용되므로 브라우저 기본 스타일과 같은 "렌더러 규칙"으로 취급한다.
+  base_css: "body{font-family:Arial}"
