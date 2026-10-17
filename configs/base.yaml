@@ -1,0 +1,12 @@
+# 프로젝트 공통 설정. 스크립트에 값을 하드코딩하지 않고 여기서 읽는다.
+seed: 42
+
+paths:
+  data_dir: data
+  output_dir: outputs
+
+render:
+  viewport:
+    width: 512
+    height: 512
+  device_scale_factor: 1

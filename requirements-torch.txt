@@ -1,0 +1,4 @@
+# GPU 종류(NVIDIA CUDA / AMD ROCm / CPU)에 맞는 설치 명령은 https://pytorch.org/get-started/locally 에서 확인한 뒤,
+# 필요하면 --index-url 옵션을 붙여 이 파일로 설치한다.
+torch==2.14.1
+torchvision==0.29.1

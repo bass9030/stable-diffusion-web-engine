@@ -1,0 +1,16 @@
+# torch / torchvision 은 GPU 환경(CUDA 버전 등)에 따라 설치 명령이 달라 requirements-torch.txt 로 분리했다.
+# 설치 순서는 README.md 참고.
+diffusers==0.41.0
+transformers==5.20.1
+accelerate==1.15.0
+peft==0.21.2
+safetensors==0.8.0
+sentencepiece==0.2.2
+datasets==5.1.0
+playwright==1.64.0
+pillow==13.0.0
+numpy==2.5.4
+pyyaml==6.0.3
+tqdm==4.70.1
+lpips==0.1.4
+scikit-image==0.26.0

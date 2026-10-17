@@ -1,0 +1,27 @@
+# 가상환경
+.venv/
+venv/
+
+# 파이썬 캐시
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# 대용량 산출물 (CLAUDE.md: 데이터/체크포인트는 커밋하지 않는다)
+data/*
+outputs/*
+!data/.gitkeep
+!outputs/.gitkeep
+
+# 모델 가중치
+*.safetensors
+*.ckpt
+*.pt
+*.pth
+*.bin
+
+# 에디터/OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
