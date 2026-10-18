@@ -1,0 +1,12 @@
+# overfit 테스트 v8: v6(zero terminal SNR + v-prediction, 높은 timestep 편향 유지)에
+# LoRA 대상으로 resnet conv / transformer proj 레이어를 추가한다.
+# train_lora_overfit.yaml, train_lora_overfit_vpred.yaml 위에 덮어쓴다.
+#   python -m src.train.train_lora --config configs/base.yaml configs/train_lora.yaml \
+#       configs/train_lora_overfit.yaml configs/train_lora_overfit_vpred.yaml configs/train_lora_overfit_v8.yaml
+lora:
+  target_modules: [to_k, to_q, to_v, to_out.0, proj_in, proj_out, conv1, conv2]
+
+train:
+  run_name: lora_overfit_v8_conv
+  # v6와 같게 되돌림 (v7에서 0으로 바꿨을 때 전역 구조 일치가 약해짐)
+  high_timestep_prob: 0.5

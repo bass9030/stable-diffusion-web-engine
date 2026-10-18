@@ -19,7 +19,7 @@
 4. Phase 0 수행: 디렉터리 구조, 의존성 파일, 설정 파일, 환경 점검 스크립트, README, .gitignore 작성. `CLAUDE.md`를 새 이름/경로에 맞게 수정.
 5. Phase 0 마무리: 사용자 PC에서 설치 및 check_env.py FAIL 0 확인, `git init` 후 첫 커밋(a2788e9).
 6. Phase 1 수행: HTML 생성기·렌더러·데이터셋 빌드·재현성 검사 스크립트 작성, 1만 쌍 생성. 커밋 8f7fefa.
-7. Phase 2 진행 중: 짧은 데이터셋, 캐시, LoRA 학습/추론 코드 작성, overfit 테스트 v1~v7 (미커밋).
+7. Phase 2 진행 중: 짧은 데이터셋, 캐시, LoRA 학습/추론 코드 작성, overfit 테스트 v1~v8. 코드는 0e660c9로 커밋 (v8 설정 파일은 미커밋).
 
 ## 3. 결정된 사항
 
@@ -82,7 +82,7 @@ requirements-torch.txt: torch 2.14.1, torchvision 0.29.1.
 - 주의: 이 데이터는 Phase 1 코드가 커밋되기 전에 생성되어 render_env.json의 git_commit이 a2788e9(Phase 0)로 기록됨. `git_dirty` 필드는 생성 이후 추가됨. 생성 로직은 이후 커밋과 동일(재생성 시 해시 일치 확인 가능).
 - 알려진 한계: 글자 색을 배경과 무관하게 팔레트에서 골라 대비가 낮아 거의 안 보이는 글자가 일부 있음 (글자 복원은 비목표라 유지).
 
-## 4-2. Phase 2 진행 상황 (미커밋)
+## 4-2. Phase 2 진행 상황
 
 ### 짧은 HTML 데이터셋
 - 기존 1만 쌍의 CLIP 토큰 수(BOS/EOS 포함): 중앙값 128, p90 327, 77 이하 22.7%.
@@ -111,6 +111,7 @@ requirements-torch.txt: torch 2.14.1, torchvision 0.29.1.
 | v5 | rank 64, 3000 step (v4 설정 유지) | step 1500까지 train MSE 0.077, 이후 발산(얼룩 텍스처, 0.247). 박스 없음 |
 | v6 | + zero terminal SNR + v-prediction, lr 2e-4, offset noise 끔 (높은 t 편향 유지) | **전역 색/큰 블록 위치가 처음으로 정답을 따라감** (보라/초록 블록 위치 일치). 그러나 세부가 노이즈 질감. train MSE 0.052~0.095 |
 | v7 | v6에서 timestep 균등 분포로 | 질감 노이즈는 줄었으나 전역 구조 일치가 v6보다 약해짐. train MSE 0.070~0.124 |
+| v8 | v6 + LoRA 대상에 conv1/conv2(각 22), proj_in/proj_out(각 16) 추가. 학습 파라미터 47.3M, 4.33GB, 1.24s/step | 일부 학습 샘플(흰 배경+초록 박스)은 위치·크기·색까지 일치. 다른 샘플엔 자주 본 요소(초록 박스)가 섞여 나옴, 배경 얼룩 질감 남음. train MSE 0.064~0.184 (step 3000: 0.069) |
 - 샘플 MSE: `samples/metrics.jsonl`에 정답(VAE 복원) 대비 픽셀 MSE 기록 (v5부터). 샘플 6개라 checkpoint 간 변동이 큼.
 - v6 체크포인트로 샘플러 비교(DPMSolver 25, DDIM 25/50, Euler 25): 결과 거의 동일 → 노이즈 질감은 샘플러가 아니라 모델 문제.
 - SD1.5 기본 스케줄의 마지막 timestep 신호 √ᾱ_T = 0.068 (실측), zero SNR 적용 시 0.
@@ -140,8 +141,7 @@ requirements-torch.txt: torch 2.14.1, torchvision 0.29.1.
 4. 알려진 잔여물: `scripts/__pycache__/`가 남아 있음 (삭제 권한이 없어 지우지 못함, .gitignore에 포함).
 5. git 저장소 초기화 완료 (브랜치 `main`, Phase 0 산출물로 첫 커밋). 원격 저장소는 없음.
 6. (완료) 토큰 수 측정 및 짧은 데이터셋 생성.
-7. Phase 2 overfit 테스트 미통과 (v1~v7). 시도 완료: step 증가, rank 64, zero terminal SNR + v-prediction. 남은 후보:
-   - LoRA 대상에 resnet conv / proj 레이어 추가 (v6 설정 기반)
+7. Phase 2 overfit 테스트 미통과 (v1~v8). 시도 완료: step 증가, rank 64, zero terminal SNR + v-prediction, conv/proj LoRA. 남은 후보:
    - UNet full fine-tuning: fp32 + AdamW 기준 약 14GB 필요(추정) → 로컬 6GB 불가, 클라우드 GPU 필요
    - 256px로 낮춰 실험 반복 속도 4배 (SD1.5는 저해상도 품질이 떨어지는 점 감안)
    - overfit은 부분 성공으로 보고 본 학습 진행 (3000 step × 배치 4, 로컬 약 4시간)
