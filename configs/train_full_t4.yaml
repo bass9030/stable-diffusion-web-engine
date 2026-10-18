@@ -1,0 +1,11 @@
+# Plan B T4(16GB, bf16 미지원)용. train_full.yaml 뒤에 덮어쓴다.
+# 유효 배치는 A100 설정과 같은 8 (2 × grad_accum 4).
+train:
+  batch_size: 2
+  grad_accum: 4
+  mixed_precision: float16
+  # 옵티마이저 상태를 8비트로 저장해 약 5GB 절약 (bitsandbytes)
+  use_8bit_adam: true
+
+sample:
+  batch_size: 2

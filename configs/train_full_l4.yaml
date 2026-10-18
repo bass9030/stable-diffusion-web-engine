@@ -1,0 +1,9 @@
+# Plan B L4(24GB, bf16 지원)용. train_full.yaml 뒤에 덮어쓴다.
+# 유효 배치는 A100 설정과 같은 8 (4 × grad_accum 2). 메모리 여유는 추정이며 실측 전이다.
+train:
+  batch_size: 4
+  grad_accum: 2
+  use_8bit_adam: true
+
+sample:
+  batch_size: 3

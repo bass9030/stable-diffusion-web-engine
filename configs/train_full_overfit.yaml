@@ -1,0 +1,19 @@
+# Plan B 파이프라인 점검용 overfit 테스트 (학습 32장). train_full.yaml(및 _t4) 뒤에 덮어쓴다.
+# 학습 샘플이 정답과 거의 같아지면 통과 (LoRA는 v1~v8에서 부분 성공에 그침).
+data:
+  max_train_samples: 32
+  num_sample_val: 2
+  num_sample_train: 4
+
+train:
+  run_name: full_overfit
+  max_steps: 1500
+  learning_rate: 2.0e-5
+  lr_warmup_steps: 50
+  caption_dropout: 0.0
+  sample_every: 250
+  checkpoint_every: 1500
+  keep_last_checkpoints: 1
+
+sample:
+  guidance_scale: 1.0

@@ -120,6 +120,18 @@ requirements-torch.txt: torch 2.14.1, torchvision 0.29.1.
 - 확인한 것: LoRA B 가중치가 모든 블록(self/cross attention)에서 학습됨 → gradient checkpointing 버그 아님. 샘플 간 CLIP 임베딩 평균 cos 0.61 → 입력 구별 정보는 있음.
 - 가설(미검증): SD1.5 노이즈 스케줄의 종단 SNR이 0이 아니어서 전역 색/레이아웃 학습이 느림. 근본 대책은 zero terminal SNR + v-prediction (Lin et al. 2023), 다만 eps 모델을 LoRA만으로 v-pred로 바꾸는 것은 부담이 큼.
 
+## 4-3. Plan B: 클라우드 GPU UNet full fine-tuning (미커밋, 클라우드 실행 전)
+
+LoRA 본 학습(`outputs/lora_short_v8`, 커밋 623723b 기준, 로컬 백그라운드 실행 중) 결과가 부족할 때를 대비.
+- `src/train/train_full.py`: train_lora.py의 캐시·손실·샘플링 함수를 재사용하고 UNet 전체를 학습. fp32 마스터 가중치 + autocast(bf16/fp16, fp16이면 GradScaler), 8-bit Adam 옵션(bitsandbytes), 체크포인트는 UNet만 fp16 safetensors로 저장(약 1.7GB), 최근 N개만 유지, `--resume`(가중치·step만 이어받음, 옵티마이저/warmup은 새로 시작).
+- 설정: `configs/train_full.yaml`(A100 기준: 배치 8, bf16, lr 1e-5, warmup 500, 6000 step, v-pred + zero SNR, 높은 t 편향 0.5), `train_full_l4.yaml`(4×2, 8-bit Adam), `train_full_t4.yaml`(2×4, fp16, 8-bit Adam), `train_full_overfit.yaml`(32장, 1500 step, lr 2e-5).
+- `scripts/pack_for_colab.py`: git 추적 파일 + 무시되지 않은 새 파일 + `outputs/cache/short` → `outputs/colab_bundle.zip`(약 720MB). Colab에서 다시 렌더링하면 폰트가 달라지므로 로컬 캐시를 가져감.
+- `notebooks/colab_full_finetune.ipynb`: Drive 마운트 → 번들 풀기 → requirements 설치(Colab torch 사용) → check_env → GPU별 프리셋 자동 선택 → overfit → 본 학습(자동 재개) → 결과 보기 → 추론. 출력은 Drive `MyDrive/sd-engine/outputs/`.
+- `src/infer/generate.py`: `--full <ckpt>` 옵션 추가.
+- requirements.txt에 `bitsandbytes==0.50.2` 추가 (로컬 venv에도 설치, import 확인).
+- 검증: 로컬 CPU에서 작은 무작위 UNet으로 바꿔치기한 스모크 테스트로 bf16/fp16 학습, 샘플·체크포인트 저장, 재개, 체크포인트 정리, `generate --full` 로드 확인. 노트북 코드 셀 문법 검사 통과.
+- 미검증: 실제 SD UNet full FT의 메모리/속도(표의 GPU별 설정은 추정), Colab Python/패키지 버전 호환(requirements 고정 버전이 Colab 기본 환경과 충돌할 수 있음), T4 fp16 안정성, 8-bit Adam 실제 동작(CUDA 필요).
+
 ## 5. 검증 상태
 
 - `check_env.py` 문법 검사 통과.
@@ -142,6 +154,6 @@ requirements-torch.txt: torch 2.14.1, torchvision 0.29.1.
 5. git 저장소 초기화 완료 (브랜치 `main`, Phase 0 산출물로 첫 커밋). 원격 저장소는 없음.
 6. (완료) 토큰 수 측정 및 짧은 데이터셋 생성.
 7. Phase 2 overfit 테스트 미통과 (v1~v8). 시도 완료: step 증가, rank 64, zero terminal SNR + v-prediction, conv/proj LoRA. 남은 후보:
-   - UNet full fine-tuning: fp32 + AdamW 기준 약 14GB 필요(추정) → 로컬 6GB 불가, 클라우드 GPU 필요
+   - UNet full fine-tuning: fp32 + AdamW 기준 약 14GB 필요(추정) → 로컬 6GB 불가. Colab 노트북 준비됨 (4-3절)
    - 256px로 낮춰 실험 반복 속도 4배 (SD1.5는 저해상도 품질이 떨어지는 점 감안)
-   - overfit은 부분 성공으로 보고 본 학습 진행 (3000 step × 배치 4, 로컬 약 4시간)
+   - (진행 중) overfit은 부분 성공으로 보고 v8 설정으로 본 학습: `outputs/lora_short_v8`, 3000 step × 배치 4, step당 약 5초

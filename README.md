@@ -36,5 +36,26 @@ python scripts/check_datagen_repro.py --num 100
 `data/render_env.json`(브라우저 버전, viewport, 폰트, 생성 설정, git commit), 실패 시 `data/failures.jsonl`.
 폰트는 Arial 고정이며 렌더링 때만 `render.base_css`로 주입한다 (저장되는 HTML에는 없음).
 
+## Phase 2: SD 1.5 학습
+
+```powershell
+# 짧은 HTML 데이터셋(CLIP 77토큰 이내) 생성 → data/short
+python -m src.datagen.build_dataset --config configs/base.yaml configs/datagen.yaml configs/datagen_short.yaml
+# VAE latent / 텍스트 임베딩 캐시 → outputs/cache/short
+python -m src.train.cache_features --config configs/base.yaml configs/train_lora.yaml
+# LoRA 본 학습 (로컬 GPU, v8 설정)
+python -m src.train.train_lora --config configs/base.yaml configs/train_lora.yaml configs/train_lora_v8.yaml
+# 추론
+python -m src.infer.generate --lora outputs/lora_short_v8/checkpoints/step_003000 --html data/short/000011.html --out outputs/infer/000011.png
+```
+
+### Plan B: 클라우드 GPU에서 UNet full fine-tuning (Colab)
+로컬 6GB GPU로는 full fine-tuning이 불가능해 Colab용 노트북을 둔다.
+1. 변경 사항을 커밋하고 `python scripts/pack_for_colab.py` 로 `outputs/colab_bundle.zip`(코드 + 캐시)을 만든다.
+2. Google Drive `MyDrive/sd-engine/` 에 올리고 `notebooks/colab_full_finetune.ipynb` 를 Colab에서 연다.
+3. GPU 런타임에서 셀을 차례로 실행한다 (GPU에 따라 `configs/train_full_{l4,t4}.yaml` 자동 선택, 출력은 Drive에 저장, 끊기면 이어서 학습).
+
+추론: `python -m src.infer.generate --full <checkpoints/step_XXXXXX> --html ... --out ...`
+
 `check_env.py`는 패키지 import, torch 장치(CUDA/ROCm/MPS/DirectML/CPU), Playwright 렌더링과 렌더 결과 재현성, 디스크 여유 공간을 검사한다.
 `[FAIL]`이 하나라도 있으면 종료 코드 1을 반환한다. GPU 가속이 없는 것은 `[WARN]`이며, 학습은 클라우드 GPU를 쓰는 것을 전제로 한다.

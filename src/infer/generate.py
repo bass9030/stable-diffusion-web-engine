@@ -1,11 +1,13 @@
-"""HTML을 입력받아 학습된 LoRA로 렌더링 이미지를 생성한다.
+"""HTML을 입력받아 학습된 LoRA 또는 full fine-tuning UNet으로 렌더링 이미지를 생성한다.
 
 사용법:
     python -m src.infer.generate --lora outputs/lora_short/checkpoints/step_003000 \
         --html data/short/000000.html --out outputs/infer/000000.png [--seed 42]
     python -m src.infer.generate --lora ... --html-text '<body style="background:#e33"></body>' --out x.png
 
---lora 를 생략하면 베이스 모델(SD 1.5) 그대로 생성한다.
+    python -m src.infer.generate --full outputs/full_short/checkpoints/step_006000 --html ... --out x.png
+
+--lora / --full 을 모두 생략하면 베이스 모델(SD 1.5) 그대로 생성한다.
 모델/샘플링 설정은 체크포인트의 config.yaml(없으면 --config)을 따른다.
 """
 from __future__ import annotations
@@ -27,10 +29,16 @@ from src.train.utils import ROOT, noise_schedule_kwargs, resolve_device, resolve
 log = logging.getLogger("generate")
 
 
-def load_models(cfg: dict[str, Any], lora_dir: Path | None, device: torch.device) -> dict[str, Any]:
+def load_models(cfg: dict[str, Any], lora_dir: Path | None, device: torch.device,
+                full_dir: Path | None = None) -> dict[str, Any]:
     m = cfg["model"]
-    unet = UNet2DConditionModel.from_pretrained(
-        m["name"], subfolder="unet", variant=m["variant"], torch_dtype=resolve_dtype(m["unet_dtype"], device))
+    unet_dtype = resolve_dtype(m["unet_dtype"], device)
+    if full_dir is not None:
+        # train_full.py 체크포인트 (checkpoints/step_XXXXXX/unet)
+        unet = UNet2DConditionModel.from_pretrained(full_dir / "unet", torch_dtype=unet_dtype)
+    else:
+        unet = UNet2DConditionModel.from_pretrained(m["name"], subfolder="unet", variant=m["variant"],
+                                                    torch_dtype=unet_dtype)
     if lora_dir is not None:
         unet.load_lora_adapter(str(lora_dir), weight_name="pytorch_lora_weights.safetensors", prefix="unet")
     return {
@@ -65,7 +73,9 @@ def main() -> int:
             stream.reconfigure(encoding="utf-8", errors="replace")
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     p = argparse.ArgumentParser(description="HTML → 렌더링 이미지 생성")
-    p.add_argument("--lora", type=Path, default=None, help="LoRA 체크포인트 폴더")
+    weights = p.add_mutually_exclusive_group()
+    weights.add_argument("--lora", type=Path, default=None, help="LoRA 체크포인트 폴더")
+    weights.add_argument("--full", type=Path, default=None, help="full fine-tuning 체크포인트 폴더")
     p.add_argument("--config", type=Path, nargs="+",
                    default=[ROOT / "configs" / "base.yaml", ROOT / "configs" / "train_lora.yaml"])
     src = p.add_mutually_exclusive_group(required=True)
@@ -77,13 +87,14 @@ def main() -> int:
     p.add_argument("--guidance", type=float, default=None, help="기본값: sample.guidance_scale")
     args = p.parse_args()
 
-    ckpt_cfg = args.lora / "config.yaml" if args.lora else None
+    ckpt = args.lora or args.full
+    ckpt_cfg = ckpt / "config.yaml" if ckpt else None
     cfg = load_config([ckpt_cfg] if ckpt_cfg and ckpt_cfg.exists() else args.config)
     set_seed(args.seed)
     device = resolve_device()
     html = args.html.read_text(encoding="utf-8") if args.html else args.html_text
 
-    models = load_models(cfg, args.lora, device)
+    models = load_models(cfg, args.lora, device, args.full)
     cond = encode(html, models, device)
     uncond = encode("", models, device)
     latents = sample_latents(
