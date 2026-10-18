@@ -1,0 +1,24 @@
+# Phase 2 본 학습: overfit v8 설정(zero terminal SNR + v-prediction, conv/proj LoRA)으로
+# 짧은 데이터셋(data/short) 학습 샘플 전체를 학습한다. train_lora.yaml 위에 덮어쓴다.
+#   python -m src.train.train_lora --config configs/base.yaml configs/train_lora.yaml configs/train_lora_v8.yaml
+model:
+  prediction_type: v_prediction
+  zero_terminal_snr: true
+
+lora:
+  rank: 64
+  alpha: 64
+  target_modules: [to_k, to_q, to_v, to_out.0, proj_in, proj_out, conv1, conv2]
+
+train:
+  run_name: lora_short_v8
+  # 3000 step × (배치 1 × grad_accum 4) = 12000장 ≈ 학습셋 4752장 약 2.5 epoch
+  max_steps: 3000
+  learning_rate: 2.0e-4
+  noise_offset: 0.0
+  high_timestep_prob: 0.5
+
+sample:
+  # 본 학습은 caption_dropout 0.1로 학습하므로 CFG 사용. zero terminal SNR 논문 권장대로 rescale 0.7
+  guidance_scale: 3.0
+  guidance_rescale: 0.7
