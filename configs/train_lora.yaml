@@ -1,0 +1,63 @@
+# Phase 2 베이스라인: SD 1.5 UNet LoRA 학습 (짧은 HTML, CLIP 77토큰 이내).
+#   python -m src.train.cache_features --config configs/base.yaml configs/train_lora.yaml
+#   python -m src.train.train_lora     --config configs/base.yaml configs/train_lora.yaml
+model:
+  name: stable-diffusion-v1-5/stable-diffusion-v1-5
+  # 내려받을 가중치 변형 (fp16 파일을 받아 아래 dtype으로 올려 사용)
+  variant: fp16
+  # GTX 1660 SUPER에서 fp16 UNet 학습은 loss가 NaN이 되어 fp32 사용 (Phase 2 GPU 점검 결과)
+  unet_dtype: float32
+  vae_dtype: float16
+  text_encoder_dtype: float32
+  # epsilon | v_prediction. SD1.5 원래 가중치는 epsilon
+  prediction_type: epsilon
+  # true면 마지막 timestep SNR을 0으로 재조정 (v_prediction과 함께 사용)
+  zero_terminal_snr: false
+
+data:
+  dir: data/short
+  resolution: 512
+  # 사용할 학습 샘플 수 상한 (null이면 전체). overfit 테스트에서 줄인다.
+  max_train_samples: null
+  # 학습 중 샘플 이미지에 쓸 검증 샘플 수 / 학습 샘플 수 (고정 프롬프트 세트)
+  num_sample_val: 4
+  num_sample_train: 2
+
+cache:
+  # 미리 계산한 VAE latent / 텍스트 임베딩 저장 위치
+  dir: outputs/cache/short
+  batch_size: 8
+
+lora:
+  rank: 16
+  alpha: 16
+  target_modules: [to_k, to_q, to_v, to_out.0]
+
+train:
+  run_name: lora_short
+  max_steps: 3000
+  batch_size: 1
+  grad_accum: 4
+  learning_rate: 1.0e-4
+  lr_scheduler: constant_with_warmup
+  lr_warmup_steps: 100
+  max_grad_norm: 1.0
+  # 이 확률로 프롬프트를 빈 문자열로 바꿔 학습 (classifier-free guidance용)
+  caption_dropout: 0.1
+  # offset noise 크기. 0이면 끈다. 단색 배경이 많은 데이터라 평균 밝기 학습을 돕기 위해 사용.
+  noise_offset: 0.1
+  # 이 확률로 timestep을 [high_timestep_min, 1000) 구간에서 뽑는다 (0이면 균등 분포)
+  high_timestep_prob: 0.5
+  high_timestep_min: 700
+  gradient_checkpointing: true
+  log_every: 10
+  sample_every: 250
+  checkpoint_every: 500
+
+sample:
+  num_inference_steps: 25
+  guidance_scale: 3.0
+  # trailing: 샘플링을 t=999부터 시작 (SD1.5 기본 leading은 25 step에서 t=961부터 시작)
+  timestep_spacing: trailing
+  # CFG 결과 분산 보정 (0이면 끔). zero terminal SNR 논문은 0.7 권장
+  guidance_rescale: 0.0

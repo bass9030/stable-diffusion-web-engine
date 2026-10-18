@@ -1,0 +1,26 @@
+# Phase 2용 짧은 HTML 데이터셋. base.yaml, datagen.yaml 위에 덮어써서 사용한다.
+#   python -m src.datagen.build_dataset --config configs/base.yaml configs/datagen.yaml configs/datagen_short.yaml
+paths:
+  data_dir: data/short
+
+dataset:
+  num_samples: 5000
+  # CLIP 토큰 수(BOS/EOS 포함)가 이 값을 넘는 샘플은 렌더링 전에 건너뛴다 (개수는 기록)
+  max_clip_tokens: 77
+  tokenizer: stable-diffusion-v1-5/stable-diffusion-v1-5
+
+generator:
+  min_components: 1
+  max_components: 3
+  component_weights:
+    heading: 3
+    paragraph: 2
+    button: 2
+    box: 4
+    columns: 1
+  min_columns: 2
+  max_columns: 2
+  max_column_children: 1
+  min_paragraph_words: 2
+  max_paragraph_words: 6
+  wrap_html: false

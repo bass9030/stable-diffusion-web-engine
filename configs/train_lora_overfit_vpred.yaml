@@ -1,0 +1,17 @@
+# overfit 테스트 v6: zero terminal SNR + v-prediction (Lin et al. 2023).
+# train_lora_overfit.yaml 위에 덮어쓴다.
+#   python -m src.train.train_lora --config configs/base.yaml configs/train_lora.yaml \
+#       configs/train_lora_overfit.yaml configs/train_lora_overfit_vpred.yaml
+model:
+  prediction_type: v_prediction
+  zero_terminal_snr: true
+
+train:
+  run_name: lora_overfit_v7_vpred
+  # zero terminal SNR이면 offset noise가 필요 없다 (논문)
+  noise_offset: 0.0
+  # v6: 높은 timestep 편향을 유지했더니 전역 구조는 맞지만 세부가 노이즈 질감으로 남음
+  # → zero SNR로 높은 t 문제가 해결되므로 균등 분포로 되돌린다
+  high_timestep_prob: 0.0
+  # v5(rank 64, lr 5e-4)가 step 1500 이후 발산해 학습률을 낮춘다
+  learning_rate: 2.0e-4

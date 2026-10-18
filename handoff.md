@@ -1,6 +1,6 @@
 # handoff.md — stable-diffusion-engine
 
-작성 시점: 2026-10-18 (Phase 1 완료: 1만 쌍 데이터셋 생성 및 시드 재현성 확인)
+작성 시점: 2026-10-18 (Phase 2 진행 중: 파이프라인 동작, overfit 테스트 미통과)
 프로젝트 루트: `C:\Users\bass9030\codes\stable-diffusion-engine`
 
 ## 1. 프로젝트 개요
@@ -18,7 +18,8 @@
 3. 작업 위치를 로컬 폴더 `stable-diffusion-engine`으로 지정받아, 이후 프로젝트 데이터는 모두 이 폴더에 작성하기로 함.
 4. Phase 0 수행: 디렉터리 구조, 의존성 파일, 설정 파일, 환경 점검 스크립트, README, .gitignore 작성. `CLAUDE.md`를 새 이름/경로에 맞게 수정.
 5. Phase 0 마무리: 사용자 PC에서 설치 및 check_env.py FAIL 0 확인, `git init` 후 첫 커밋(a2788e9).
-6. Phase 1 수행: HTML 생성기·렌더러·데이터셋 빌드·재현성 검사 스크립트 작성, 1만 쌍 생성.
+6. Phase 1 수행: HTML 생성기·렌더러·데이터셋 빌드·재현성 검사 스크립트 작성, 1만 쌍 생성. 커밋 8f7fefa.
+7. Phase 2 진행 중: 짧은 데이터셋, 캐시, LoRA 학습/추론 코드 작성, overfit 테스트 v1~v7 (미커밋).
 
 ## 3. 결정된 사항
 
@@ -81,6 +82,43 @@ requirements-torch.txt: torch 2.14.1, torchvision 0.29.1.
 - 주의: 이 데이터는 Phase 1 코드가 커밋되기 전에 생성되어 render_env.json의 git_commit이 a2788e9(Phase 0)로 기록됨. `git_dirty` 필드는 생성 이후 추가됨. 생성 로직은 이후 커밋과 동일(재생성 시 해시 일치 확인 가능).
 - 알려진 한계: 글자 색을 배경과 무관하게 팔레트에서 골라 대비가 낮아 거의 안 보이는 글자가 일부 있음 (글자 복원은 비목표라 유지).
 
+## 4-2. Phase 2 진행 상황 (미커밋)
+
+### 짧은 HTML 데이터셋
+- 기존 1만 쌍의 CLIP 토큰 수(BOS/EOS 포함): 중앙값 128, p90 327, 77 이하 22.7%.
+- `configs/datagen_short.yaml`(컴포넌트 1~3개, 문단 2~6단어, `wrap_html: false`) + build_dataset의 `dataset.max_clip_tokens: 77` 필터(렌더링 전 건너뜀, `summary.json`에 개수 기록).
+- `data/short/`: 5000쌍(val 248), 토큰 초과로 건너뜀 5169개, 실패 0, 재현성 100/100 일치. 기존 data/ 재현성도 20/20 유지.
+
+### GPU 점검 (GTX 1660 SUPER, 6GB)
+- fp16 UNet 학습: loss NaN (실측). fp16이 fp32보다 느리기도 함(4.0s vs 1.1s/step). → `unet_dtype: float32`.
+- fp32 + LoRA r8 + gradient checkpointing, 512px 배치 1: 최대 메모리 3.95GB, 약 1.1~1.2s/step.
+- fp16 VAE/텍스트 인코더는 NaN 없음.
+
+### 코드
+- `configs/train_lora.yaml`, `configs/train_lora_overfit.yaml`(32장, run_name은 실험마다 v2/v3/v4로 변경).
+- `src/train/cache_features.py`: VAE latent(분포 평균×scaling)와 CLIP 임베딩을 `outputs/cache/short/{train,val,empty}.pt`로 저장. 5000장에 약 1시간 45분 소요.
+- `src/train/train_lora.py`: 캐시 기반 LoRA 학습 (fp32 UNet, offset noise, 높은 timestep 비중 옵션, caption dropout, 샘플 그리드 [정답|생성], 체크포인트에 config.yaml/run_info.json(git commit/dirty)).
+- `src/infer/sampler.py`(DPMSolver + CFG 샘플링 루프, 학습/추론 공용), `src/infer/generate.py`(HTML → 이미지, LoRA 로드).
+- `src/train/utils.py`: 장치/dtype/시드/git 정보 (장치 의존 코드는 여기서만).
+
+### overfit 테스트 결과 (학습 32장, 샘플: val 2 + train 4)
+| 버전 | 변경 | 결과 |
+|---|---|---|
+| v1 | lr 1e-4, 600 step | 회색 질감 화면. 정답과 무관 |
+| v2 | + offset noise 0.1, 1000 step | 깔끔한 웹페이지 형태, 그러나 배경 항상 연회색, 입력별 차이 작음 |
+| v3 | lr 5e-4, 1500 step | 웹 UI 요소 등장, 입력 단어 일부 반영. 배경 여전히 회색, 레이아웃이 입력과 무관 |
+| v4 | + timestep 50%를 [700,1000)에서, trailing 샘플링 | 가장 나음. 배경색이 정답 쪽으로 일부 이동. 박스 위치/색은 아직 못 외움 |
+| v5 | rank 64, 3000 step (v4 설정 유지) | step 1500까지 train MSE 0.077, 이후 발산(얼룩 텍스처, 0.247). 박스 없음 |
+| v6 | + zero terminal SNR + v-prediction, lr 2e-4, offset noise 끔 (높은 t 편향 유지) | **전역 색/큰 블록 위치가 처음으로 정답을 따라감** (보라/초록 블록 위치 일치). 그러나 세부가 노이즈 질감. train MSE 0.052~0.095 |
+| v7 | v6에서 timestep 균등 분포로 | 질감 노이즈는 줄었으나 전역 구조 일치가 v6보다 약해짐. train MSE 0.070~0.124 |
+- 샘플 MSE: `samples/metrics.jsonl`에 정답(VAE 복원) 대비 픽셀 MSE 기록 (v5부터). 샘플 6개라 checkpoint 간 변동이 큼.
+- v6 체크포인트로 샘플러 비교(DPMSolver 25, DDIM 25/50, Euler 25): 결과 거의 동일 → 노이즈 질감은 샘플러가 아니라 모델 문제.
+- SD1.5 기본 스케줄의 마지막 timestep 신호 √ᾱ_T = 0.068 (실측), zero SNR 적용 시 0.
+- 판단(추측): LoRA(어텐션만)로 eps→v 전환과 레이아웃 암기를 동시에 하기엔 용량/학습량이 부족할 수 있음.
+- loss는 처음부터 ~0.005로 낮아 지표로 쓸모가 적음 (단색 이미지라 낮은 t의 노이즈 예측이 쉬움).
+- 확인한 것: LoRA B 가중치가 모든 블록(self/cross attention)에서 학습됨 → gradient checkpointing 버그 아님. 샘플 간 CLIP 임베딩 평균 cos 0.61 → 입력 구별 정보는 있음.
+- 가설(미검증): SD1.5 노이즈 스케줄의 종단 SNR이 0이 아니어서 전역 색/레이아웃 학습이 느림. 근본 대책은 zero terminal SNR + v-prediction (Lin et al. 2023), 다만 eps 모델을 LoRA만으로 v-pred로 바꾸는 것은 부담이 큼.
+
 ## 5. 검증 상태
 
 - `check_env.py` 문법 검사 통과.
@@ -101,4 +139,9 @@ requirements-torch.txt: torch 2.14.1, torchvision 0.29.1.
 3. (완료) Phase 1: 템플릿 기반 HTML 생성기(div, 배경색, 제목/문단, 버튼, 2~3칼럼 등을 무작위 조합), Playwright 렌더러, 저장 형식 `data/{id}.html`, `data/{id}.png`, `metadata.jsonl`, 초기 5천~1만 쌍, 시드 재현성 확인. 폰트 1종 고정 필요.
 4. 알려진 잔여물: `scripts/__pycache__/`가 남아 있음 (삭제 권한이 없어 지우지 못함, .gitignore에 포함).
 5. git 저장소 초기화 완료 (브랜치 `main`, Phase 0 산출물로 첫 커밋). 원격 저장소는 없음.
-6. Phase 2 시작 전 할 일: CLIP 토크나이저로 HTML 토큰 수 분포를 측정하고, 77토큰 이내 샘플만 쓰거나 Phase 2용 축소 설정(`configs/datagen_short.yaml` 등)으로 별도 생성할지 결정.
+6. (완료) 토큰 수 측정 및 짧은 데이터셋 생성.
+7. Phase 2 overfit 테스트 미통과 (v1~v7). 시도 완료: step 증가, rank 64, zero terminal SNR + v-prediction. 남은 후보:
+   - LoRA 대상에 resnet conv / proj 레이어 추가 (v6 설정 기반)
+   - UNet full fine-tuning: fp32 + AdamW 기준 약 14GB 필요(추정) → 로컬 6GB 불가, 클라우드 GPU 필요
+   - 256px로 낮춰 실험 반복 속도 4배 (SD1.5는 저해상도 품질이 떨어지는 점 감안)
+   - overfit은 부분 성공으로 보고 본 학습 진행 (3000 step × 배치 4, 로컬 약 4시간)

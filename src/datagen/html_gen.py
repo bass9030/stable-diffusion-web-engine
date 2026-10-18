@@ -39,6 +39,8 @@ class GenConfig:
     min_paragraph_words: int
     max_paragraph_words: int
     colored_body_prob: float
+    # False면 <html> 래퍼를 생략해 토큰 수를 줄인다 (Chromium 파싱 결과는 동일)
+    wrap_html: bool = True
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "GenConfig":
@@ -141,4 +143,5 @@ def generate_html(seed: int, cfg: GenConfig) -> str:
         f"margin:0;padding:{rng.choice(SPACINGS)}px;"
         f"background:{body_bg};color:{_text_color_for(body_bg)}"
     )
-    return f'<html><body style="{body_style}">{body}</body></html>'
+    doc = f'<body style="{body_style}">{body}</body>'
+    return f"<html>{doc}</html>" if cfg.wrap_html else doc

@@ -8,6 +8,10 @@
     metadata.jsonl        샘플별 시드, 분할(train/val), 해시
     render_env.json       렌더링 환경(브라우저 버전, viewport, 폰트 등)과 생성 설정
     failures.jsonl        렌더링에 실패한 샘플 (실패가 있을 때만)
+    summary.json          성공/실패/토큰 초과로 건너뛴 개수
+
+dataset.max_clip_tokens 가 설정되면 CLIP 토큰 수가 넘는 샘플은 렌더링 전에 건너뛰고,
+통과한 샘플이 num_samples 개가 될 때까지 인덱스를 늘려간다 (인덱스·시드는 그대로 결정적).
 """
 from __future__ import annotations
 
@@ -91,6 +95,22 @@ def build_render_env(cfg: dict[str, Any], base_seed: int, browser_version: str) 
     }
 
 
+class TokenCounter:
+    """CLIP 토크나이저로 토큰 수(BOS/EOS 포함)를 센다. 설정이 없으면 세지 않는다."""
+
+    def __init__(self, tokenizer_name: str | None) -> None:
+        self._tok = None
+        if tokenizer_name:
+            from transformers import CLIPTokenizer
+
+            self._tok = CLIPTokenizer.from_pretrained(tokenizer_name, subfolder="tokenizer")
+
+    def count(self, text: str) -> int | None:
+        if self._tok is None:
+            return None
+        return len(self._tok(text, truncation=False, verbose=False).input_ids)
+
+
 def build_sample(index: int, base_seed: int, gen_cfg: GenConfig, val_ratio: float) -> dict[str, Any]:
     seed = derive_seed(base_seed, index, "html")
     return {
@@ -107,7 +127,7 @@ def prepare_out_dir(out_dir: Path, overwrite: bool) -> None:
     meta = out_dir / "metadata.jsonl"
     if meta.exists() and not overwrite:
         raise SystemExit(f"{meta} 가 이미 있다. 덮어쓰려면 --overwrite 를 지정한다.")
-    for name in ("metadata.jsonl", "failures.jsonl"):
+    for name in ("metadata.jsonl", "failures.jsonl", "summary.json"):
         (out_dir / name).unlink(missing_ok=True)
 
 
@@ -137,14 +157,22 @@ def main() -> int:
     cfg["dataset"] = {**cfg["dataset"], "num_samples": num_samples}
 
     prepare_out_dir(out_dir, args.overwrite)
-    n_ok = n_fail = n_val = 0
-    with Renderer.from_config(cfg["render"]) as renderer, \
-            open(out_dir / "metadata.jsonl", "w", encoding="utf-8") as meta_f:
+    max_tokens = cfg["dataset"].get("max_clip_tokens")
+    counter = TokenCounter(cfg["dataset"].get("tokenizer") if max_tokens else None)
+    n_ok = n_fail = n_val = n_skipped = 0
+    with Renderer.from_config(cfg["render"]) as renderer,             open(out_dir / "metadata.jsonl", "w", encoding="utf-8") as meta_f,             tqdm(total=num_samples, desc="render") as pbar:
         env = build_render_env(cfg, base_seed, renderer.browser_version)
         (out_dir / "render_env.json").write_text(json.dumps(env, indent=2, ensure_ascii=False), encoding="utf-8")
 
-        for index in tqdm(range(num_samples), desc="render"):
+        index = 0
+        while n_ok + n_fail < num_samples:
             sample = build_sample(index, base_seed, gen_cfg, val_ratio)
+            index += 1
+            n_tokens = counter.count(sample["html"])
+            if max_tokens and n_tokens > max_tokens:
+                n_skipped += 1
+                continue
+            pbar.update(1)
             html_bytes = sample["html"].encode("utf-8")
             try:
                 png = renderer.render(sample["html"])
@@ -162,14 +190,16 @@ def main() -> int:
             (out_dir / f"{sample['id']}.html").write_bytes(html_bytes)
             (out_dir / f"{sample['id']}.png").write_bytes(png)
             meta_f.write(json.dumps({
-                "id": sample["id"], "index": index, "seed": sample["seed"], "split": sample["split"],
-                "html_chars": len(sample["html"]),
+                "id": sample["id"], "index": sample["index"], "seed": sample["seed"], "split": sample["split"],
+                "html_chars": len(sample["html"]), "clip_tokens": n_tokens,
                 "html_sha256": sha256_hex(html_bytes), "png_sha256": sha256_hex(png),
             }) + "\n")
             n_ok += 1
             n_val += sample["split"] == "val"
 
-    log.info("완료: 성공 %d (val %d) / 실패 %d -> %s", n_ok, n_val, n_fail, out_dir)
+    summary = {"ok": n_ok, "val": n_val, "failed": n_fail, "skipped_over_tokens": n_skipped, "last_index": index - 1}
+    (out_dir / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    log.info("완료: 성공 %d (val %d) / 실패 %d / 토큰 초과 건너뜀 %d -> %s", n_ok, n_val, n_fail, n_skipped, out_dir)
     return 1 if n_fail else 0
 
 
