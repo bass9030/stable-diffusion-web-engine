@@ -17,8 +17,12 @@ train:
   learning_rate: 2.0e-4
   noise_offset: 0.0
   high_timestep_prob: 0.5
+  # 데스크톱과 VRAM을 나눠 쓰는 6GB GPU에서 샘플링 중 공유 메모리로 넘쳐 크게 느려져 간격을 늘린다
+  sample_every: 500
 
 sample:
+  # CFG로 실제 배치가 2배가 되므로 1장씩 생성 (2장씩일 때 공유 메모리 1.1GB 사용, step 250 샘플링이 8분 이상)
+  batch_size: 1
   # 본 학습은 caption_dropout 0.1로 학습하므로 CFG 사용. zero terminal SNR 논문 권장대로 rescale 0.7
   guidance_scale: 3.0
   guidance_rescale: 0.7
