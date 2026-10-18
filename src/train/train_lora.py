@@ -32,7 +32,8 @@ from tqdm import tqdm
 
 from src.datagen.config import load_config
 from src.infer.sampler import decode_latents, make_grid, sample_latents
-from src.train.utils import ROOT, noise_schedule_kwargs, resolve_device, resolve_dtype, save_run_info, set_seed
+from src.train.utils import (ROOT, free_device_memory, noise_schedule_kwargs, resolve_device, resolve_dtype,
+                             save_run_info, set_seed)
 
 log = logging.getLogger("train_lora")
 
@@ -107,12 +108,18 @@ def save_samples(step: int, out_dir: Path, unet: UNet2DConditionModel, vae: Auto
                                                             **noise_schedule_kwargs(cfg["model"]))
     unet.eval()
     gen = torch.Generator("cpu").manual_seed(seed)
-    latents = sample_latents(unet, scheduler, sample_set["embeds"].to(device), empty.to(device),
-                             sc["num_inference_steps"], sc["guidance_scale"],
-                             sample_set["latents"].shape[-1], gen, sc.get("guidance_rescale", 0.0))
-    generated = decode_latents(vae, latents)
-    targets = decode_latents(vae, sample_set["latents"].to(device))
+    # 한 번에 샘플링하면 CFG로 배치가 두 배가 되어 VRAM을 넘길 수 있어 작은 묶음으로 나눈다
+    bs = sc.get("batch_size", 2)
+    generated, targets = [], []
+    for i in range(0, len(sample_set["latents"]), bs):
+        latents = sample_latents(unet, scheduler, sample_set["embeds"][i:i + bs].to(device), empty.to(device),
+                                 sc["num_inference_steps"], sc["guidance_scale"],
+                                 sample_set["latents"].shape[-1], gen, sc.get("guidance_rescale", 0.0))
+        generated += decode_latents(vae, latents)
+        targets += decode_latents(vae, sample_set["latents"][i:i + bs].to(device))
     unet.train()
+    # 샘플링 중 캐시된 메모리가 학습 중 VRAM 초과(공유 메모리 사용)로 이어지지 않게 비운다
+    free_device_memory(device)
     (out_dir / "samples").mkdir(parents=True, exist_ok=True)
     make_grid([[t, g] for t, g in zip(targets, generated)]).save(out_dir / "samples" / f"step_{step:06d}.png")
     # 정답(VAE 복원) 대비 픽셀 MSE [0,1] 범위. 앞 num_sample_val개는 검증, 나머지는 학습 샘플

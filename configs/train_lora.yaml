@@ -55,6 +55,8 @@ train:
   checkpoint_every: 500
 
 sample:
+  # 샘플 이미지를 이 개수씩 나눠 생성 (CFG 시 실제 배치는 2배). 6GB GPU에서 VRAM 초과 방지
+  batch_size: 2
   num_inference_steps: 25
   guidance_scale: 3.0
   # trailing: 샘플링을 t=999부터 시작 (SD1.5 기본 leading은 25 step에서 t=961부터 시작)

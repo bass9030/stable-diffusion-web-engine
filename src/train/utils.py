@@ -28,6 +28,12 @@ def resolve_device() -> torch.device:
     return torch.device("cpu")
 
 
+def free_device_memory(device: torch.device) -> None:
+    """캐시 할당자가 잡고 있는 미사용 GPU 메모리를 반환한다."""
+    if device.type == "cuda":
+        torch.cuda.empty_cache()
+
+
 def resolve_dtype(name: str, device: torch.device) -> torch.dtype:
     """CPU에서는 half 연산이 느리거나 지원되지 않아 fp32로 바꾼다."""
     dtype = DTYPES[name]
