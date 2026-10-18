@@ -1,0 +1,14 @@
+# 대여 GPU(RTX 4090 등 Ampere 이상, 24GB 이상)에서 v8 LoRA 본 학습을 돌릴 때의 차이만 덮어쓴다.
+#   python -m src.train.train_lora --config configs/base.yaml configs/train_lora.yaml configs/train_lora_v8.yaml \
+#       configs/train_lora_rental.yaml
+# 학습 하이퍼파라미터는 로컬 v8과 같고, 실행 환경에 맞춘 값만 바꾼다.
+train:
+  run_name: lora_short_v8_rental
+  # fp32 UNet 연산을 TF32 텐서 코어로 계산 (수치가 로컬 GTX 1660 결과와 완전히 같지는 않음)
+  allow_tf32: true
+  # VRAM 여유가 있어 로컬보다 자주 샘플링
+  sample_every: 250
+
+sample:
+  # 로컬은 VRAM 부족으로 1장씩 생성했지만 24GB 이상이면 한 번에 생성
+  batch_size: 6

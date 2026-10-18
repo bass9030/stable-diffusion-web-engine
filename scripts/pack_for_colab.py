@@ -1,4 +1,4 @@
-"""Colab(Plan B)에 올릴 번들 zip을 만든다.
+"""Colab / 대여 GPU(Vast.ai, RunPod 등)에 올릴 번들 zip을 만든다.
 
 git이 추적하는 파일(코드, 설정, 문서)과 latent/임베딩 캐시를 하나의 zip으로 묶는다.
 데이터를 Colab에서 다시 렌더링하면 폰트(Arial) 등 렌더링 환경이 달라지므로 로컬에서 만든 캐시를 가져간다.

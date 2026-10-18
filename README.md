@@ -53,9 +53,14 @@ python -m src.infer.generate --lora outputs/lora_short_v8/checkpoints/step_00300
 로컬 6GB GPU로는 full fine-tuning이 불가능해 Colab용 노트북을 둔다.
 1. 변경 사항을 커밋하고 `python scripts/pack_for_colab.py` 로 `outputs/colab_bundle.zip`(코드 + 캐시)을 만든다.
 2. Google Drive `MyDrive/sd-engine/` 에 올리고 `notebooks/colab_full_finetune.ipynb` 를 Colab에서 연다.
-3. GPU 런타임에서 셀을 차례로 실행한다 (GPU에 따라 `configs/train_full_{l4,t4}.yaml` 자동 선택, 출력은 Drive에 저장, 끊기면 이어서 학습).
+3. GPU 런타임에서 셀을 차례로 실행한다 (GPU에 따라 `configs/train_full_{24gb,t4}.yaml` 자동 선택, 출력은 Drive에 저장, 끊기면 이어서 학습).
 
 추론: `python -m src.infer.generate --full <checkpoints/step_XXXXXX> --html ... --out ...`
+
+### 대여 GPU (Vast.ai / RunPod 등 일반 Jupyter)
+같은 번들을 인스턴스의 `/workspace/`에 올리고 `notebooks/rental_train.ipynb`를 실행한다.
+`MODE = "lora"`(추천 GPU: RTX 4090)는 v8 LoRA 본 학습, `MODE = "full"`(추천 GPU: A100 80GB)은 UNet full fine-tuning.
+결과는 `/workspace/results_<run>.zip`으로 묶이며, 인스턴스를 삭제하기 전에 내려받는다.
 
 `check_env.py`는 패키지 import, torch 장치(CUDA/ROCm/MPS/DirectML/CPU), Playwright 렌더링과 렌더 결과 재현성, 디스크 여유 공간을 검사한다.
 `[FAIL]`이 하나라도 있으면 종료 코드 1을 반환한다. GPU 가속이 없는 것은 `[WARN]`이며, 학습은 클라우드 GPU를 쓰는 것을 전제로 한다.

@@ -37,8 +37,8 @@ from tqdm import tqdm
 
 from src.datagen.config import load_config
 from src.train.train_lora import load_cache, save_samples, subset, training_loss
-from src.train.utils import (DTYPES, ROOT, free_device_memory, noise_schedule_kwargs, resolve_device, resolve_dtype,
-                             save_run_info, set_seed)
+from src.train.utils import (DTYPES, ROOT, configure_backend, free_device_memory, noise_schedule_kwargs,
+                             resolve_device, resolve_dtype, save_run_info, set_seed)
 
 log = logging.getLogger("train_full")
 
@@ -110,6 +110,7 @@ def main() -> int:
     seed = args.seed if args.seed is not None else cfg["seed"]
     cfg["seed"] = seed
     device = resolve_device()
+    configure_backend(device, cfg["train"].get("allow_tf32", False))
     tc, dc = cfg["train"], cfg["data"]
     start_step = 0
     if args.resume is not None:

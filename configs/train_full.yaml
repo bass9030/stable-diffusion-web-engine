@@ -1,6 +1,6 @@
-# Plan B: SD 1.5 UNet full fine-tuning (클라우드 GPU, A100/L4 기준). train_lora.yaml 위에 덮어쓴다.
+# Plan B: SD 1.5 UNet full fine-tuning (클라우드 GPU, A100 80GB 기준). train_lora.yaml 위에 덮어쓴다.
 #   python -m src.train.train_full --config configs/base.yaml configs/train_lora.yaml configs/train_full.yaml
-# T4(16GB)는 뒤에 configs/train_full_t4.yaml 을 더 붙인다.
+# 24GB GPU는 configs/train_full_24gb.yaml, T4(16GB)는 configs/train_full_t4.yaml 을 뒤에 더 붙인다.
 model:
   # LoRA overfit v6~v8에서 전역 색/레이아웃 학습에 효과가 있었던 설정 (full FT는 v-pred 전환 용량이 충분할 것으로 기대, 미검증)
   prediction_type: v_prediction
@@ -20,6 +20,8 @@ train:
   # bfloat16 | float16 | no. bf16은 Ampere(A100/L4) 이상, T4는 float16
   mixed_precision: bfloat16
   use_8bit_adam: false
+  # autocast 밖에 남는 fp32 연산을 TF32로 가속
+  allow_tf32: true
   noise_offset: 0.0
   high_timestep_prob: 0.5
   caption_dropout: 0.1

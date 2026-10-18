@@ -1,6 +1,6 @@
 # handoff.md — stable-diffusion-engine
 
-작성 시점: 2026-10-18 (Phase 2 진행 중: 파이프라인 동작, overfit 테스트 미통과)
+작성 시점: 2026-10-18 (Phase 2 진행 중: LoRA v8 본 학습 완료, 성공 기준 미달 → full FT 검토)
 프로젝트 루트: `C:\Users\bass9030\codes\stable-diffusion-engine`
 
 ## 1. 프로젝트 개요
@@ -120,16 +120,27 @@ requirements-torch.txt: torch 2.14.1, torchvision 0.29.1.
 - 확인한 것: LoRA B 가중치가 모든 블록(self/cross attention)에서 학습됨 → gradient checkpointing 버그 아님. 샘플 간 CLIP 임베딩 평균 cos 0.61 → 입력 구별 정보는 있음.
 - 가설(미검증): SD1.5 노이즈 스케줄의 종단 SNR이 0이 아니어서 전역 색/레이아웃 학습이 느림. 근본 대책은 zero terminal SNR + v-prediction (Lin et al. 2023), 다만 eps 모델을 LoRA만으로 v-pred로 바꾸는 것은 부담이 큼.
 
-## 4-3. Plan B: 클라우드 GPU UNet full fine-tuning (미커밋, 클라우드 실행 전)
+### 본 학습 결과 (`outputs/lora_short_v8`, 커밋 f7c9d4c, 3000 step, 약 4.2시간)
+- 재시작 이력: VRAM 넘침(공유 메모리 사용)으로 두 번 중단 → `lora_short_v8_aborted_slow`(샘플링 메모리, 수정 623723b), `lora_short_v8_aborted_vram`/`_vram2`(Firefox 등 데스크톱 앱과 VRAM 경합, 한 번 공유 메모리로 넘친 프로세스는 앱을 닫아도 속도가 돌아오지 않음). 정상 속도 약 5초/step.
+- 학습 중 샘플 MSE(val 4 / train 2, CFG 3.0 + rescale 0.7): step 0 val 0.188 → 1000: 0.113 → 2000: 0.098 → 3000: 0.102. step 2000 이후 정체.
+- 처음 보는 HTML 추론(검증 4개 + 직접 만든 3개, guidance 1/3/5): 검증 MSE 약 0.10, guidance 차이 거의 없음. 밝기(밝은/어두운 배경)는 대체로 따라가고 흰 배경 위쪽 파란 박스는 위치가 대략 맞지만, 색상은 자주 틀리고(주황→초록, 빨강→회색/갈색) 전체에 얼룩 질감, 블록 경계 불분명. → 성공 기준 미달.
+- 버그 수정(미커밋): 체크포인트 저장 시 `convert_state_dict_to_diffusers`가 어텐션 키만 옛 형식(lora.down/up)으로 바꿔 conv/proj 키(lora_A/B)와 섞였고, `generate.py`에서 불러오면 어텐션 LoRA 128개가 빠져 회색 화면만 나왔음. 저장은 PEFT 형식 그대로, 로드는 키를 PEFT 형식으로 통일(`load_lora_state_dict`)하도록 수정. 기존 v8 체크포인트 로드(204개 모듈) 및 저장→로드 왕복(차이 0) 확인. 학습 중 샘플/MSE는 메모리상 모델로 만들어 영향 없음. 어텐션만 학습한 v1~v7 체크포인트도 영향 없음.
+- 판단: 같은 설정의 LoRA를 대여 GPU에서 다시 돌리면 속도만 빨라질 뿐 결과는 비슷할 것으로 예상. 다음은 full fine-tuning(대여 A100 80GB) 또는 LoRA 설정 변경(rank/데이터/step)이 후보.
+
+## 4-3. Plan B: 클라우드 GPU 학습 (Colab / 대여 GPU, 클라우드 실행 전)
 
 LoRA 본 학습(`outputs/lora_short_v8`, 커밋 623723b 기준, 로컬 백그라운드 실행 중) 결과가 부족할 때를 대비.
 - `src/train/train_full.py`: train_lora.py의 캐시·손실·샘플링 함수를 재사용하고 UNet 전체를 학습. fp32 마스터 가중치 + autocast(bf16/fp16, fp16이면 GradScaler), 8-bit Adam 옵션(bitsandbytes), 체크포인트는 UNet만 fp16 safetensors로 저장(약 1.7GB), 최근 N개만 유지, `--resume`(가중치·step만 이어받음, 옵티마이저/warmup은 새로 시작).
-- 설정: `configs/train_full.yaml`(A100 기준: 배치 8, bf16, lr 1e-5, warmup 500, 6000 step, v-pred + zero SNR, 높은 t 편향 0.5), `train_full_l4.yaml`(4×2, 8-bit Adam), `train_full_t4.yaml`(2×4, fp16, 8-bit Adam), `train_full_overfit.yaml`(32장, 1500 step, lr 2e-5).
+- 설정: `configs/train_full.yaml`(A100 기준: 배치 8, bf16, lr 1e-5, warmup 500, 6000 step, v-pred + zero SNR, 높은 t 편향 0.5), `train_full_24gb.yaml`(24GB bf16 GPU: RTX 4090/3090/L4 등, 4×2, 8-bit Adam; 이전 이름 train_full_l4.yaml), `train_full_t4.yaml`(2×4, fp16, 8-bit Adam), `train_full_overfit.yaml`(32장, 1500 step, lr 2e-5).
 - `scripts/pack_for_colab.py`: git 추적 파일 + 무시되지 않은 새 파일 + `outputs/cache/short` → `outputs/colab_bundle.zip`(약 720MB). Colab에서 다시 렌더링하면 폰트가 달라지므로 로컬 캐시를 가져감.
 - `notebooks/colab_full_finetune.ipynb`: Drive 마운트 → 번들 풀기 → requirements 설치(Colab torch 사용) → check_env → GPU별 프리셋 자동 선택 → overfit → 본 학습(자동 재개) → 결과 보기 → 추론. 출력은 Drive `MyDrive/sd-engine/outputs/`.
 - `src/infer/generate.py`: `--full <ckpt>` 옵션 추가.
 - requirements.txt에 `bitsandbytes==0.50.2` 추가 (로컬 venv에도 설치, import 확인).
 - 검증: 로컬 CPU에서 작은 무작위 UNet으로 바꿔치기한 스모크 테스트로 bf16/fp16 학습, 샘플·체크포인트 저장, 재개, 체크포인트 정리, `generate --full` 로드 확인. 노트북 코드 셀 문법 검사 통과.
+- 대여 GPU(Vast.ai / RunPod)용 `notebooks/rental_train.ipynb`: Drive 없이 `/workspace`에 번들 업로드, `MODE`("lora" | "full")로 LoRA v8 본 학습과 full FT를 같은 노트북에서 실행. torch가 고정 버전과 다르면 드라이버 CUDA 버전에 따라 cu130/cu126으로 재설치, 결과를 `/workspace/results_<run>.zip`으로 묶음.
+- `configs/train_lora_rental.yaml`: 대여 GPU에서 v8 LoRA를 돌릴 때 실행 환경 값만 변경 (TF32 켬, 샘플 6장 한 번에, 250 step 간격). 학습 하이퍼파라미터는 로컬 v8과 동일.
+- `train.allow_tf32` 옵션 추가 (`src/train/utils.py: configure_backend`). LoRA 기본 false(로컬 재현), full FT true.
+- GPU 대여 조사(2026-10-18): LoRA는 RTX 4090(현재 LoRA는 fp32 UNet이라 fp32 성능이 높은 4090이 A100보다 유리할 것으로 추정), full FT는 A100 80GB 추천. 최저가는 Vast.ai(4090 중앙값 약 $0.51/h, A100 80GB 약 $0.60~0.67/h), 편의성은 RunPod Community Cloud(4090 $0.34/h, A100 80GB $1.19~1.39/h).
 - 미검증: 실제 SD UNet full FT의 메모리/속도(표의 GPU별 설정은 추정), Colab Python/패키지 버전 호환(requirements 고정 버전이 Colab 기본 환경과 충돌할 수 있음), T4 fp16 안정성, 8-bit Adam 실제 동작(CUDA 필요).
 
 ## 5. 검증 상태
@@ -156,4 +167,4 @@ LoRA 본 학습(`outputs/lora_short_v8`, 커밋 623723b 기준, 로컬 백그라
 7. Phase 2 overfit 테스트 미통과 (v1~v8). 시도 완료: step 증가, rank 64, zero terminal SNR + v-prediction, conv/proj LoRA. 남은 후보:
    - UNet full fine-tuning: fp32 + AdamW 기준 약 14GB 필요(추정) → 로컬 6GB 불가. Colab 노트북 준비됨 (4-3절)
    - 256px로 낮춰 실험 반복 속도 4배 (SD1.5는 저해상도 품질이 떨어지는 점 감안)
-   - (진행 중) overfit은 부분 성공으로 보고 v8 설정으로 본 학습: `outputs/lora_short_v8`, 3000 step × 배치 4, step당 약 5초
+   - (완료) v8 설정 본 학습: 성공 기준 미달 (4-2절 '본 학습 결과')

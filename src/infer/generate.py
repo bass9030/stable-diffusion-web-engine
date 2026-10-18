@@ -20,6 +20,7 @@ from typing import Any
 
 import torch
 from diffusers import AutoencoderKL, DPMSolverMultistepScheduler, UNet2DConditionModel
+from safetensors.torch import load_file
 from transformers import CLIPTextModel, CLIPTokenizer
 
 from src.datagen.config import load_config
@@ -27,6 +28,16 @@ from src.infer.sampler import decode_latents, sample_latents
 from src.train.utils import ROOT, noise_schedule_kwargs, resolve_device, resolve_dtype, set_seed
 
 log = logging.getLogger("generate")
+
+
+def load_lora_state_dict(lora_dir: Path) -> dict[str, torch.Tensor]:
+    """LoRA 가중치를 읽고 키를 PEFT 형식(lora_A/lora_B)으로 통일한다.
+
+    이전 체크포인트는 어텐션 키만 옛 diffusers 형식(lora.down/lora.up)이라 그대로 불러오면 어텐션 LoRA가 빠진다.
+    """
+    state = load_file(lora_dir / "pytorch_lora_weights.safetensors")
+    return {k.replace(".lora.down.weight", ".lora_A.weight").replace(".lora.up.weight", ".lora_B.weight"): v
+            for k, v in state.items()}
 
 
 def load_models(cfg: dict[str, Any], lora_dir: Path | None, device: torch.device,
@@ -40,7 +51,7 @@ def load_models(cfg: dict[str, Any], lora_dir: Path | None, device: torch.device
         unet = UNet2DConditionModel.from_pretrained(m["name"], subfolder="unet", variant=m["variant"],
                                                     torch_dtype=unet_dtype)
     if lora_dir is not None:
-        unet.load_lora_adapter(str(lora_dir), weight_name="pytorch_lora_weights.safetensors", prefix="unet")
+        unet.load_lora_adapter(load_lora_state_dict(lora_dir), prefix="unet")
     return {
         "tokenizer": CLIPTokenizer.from_pretrained(m["name"], subfolder="tokenizer"),
         "text_encoder": CLIPTextModel.from_pretrained(

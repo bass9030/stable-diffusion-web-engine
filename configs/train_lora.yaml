@@ -50,6 +50,8 @@ train:
   high_timestep_prob: 0.5
   high_timestep_min: 700
   gradient_checkpointing: true
+  # Ampere 이상 GPU에서 fp32 연산을 TF32로 가속 (GTX 1660에서는 효과 없음, 로컬 결과 재현을 위해 기본은 끔)
+  allow_tf32: false
   log_every: 10
   sample_every: 250
   checkpoint_every: 500

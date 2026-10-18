@@ -28,6 +28,16 @@ def resolve_device() -> torch.device:
     return torch.device("cpu")
 
 
+def configure_backend(device: torch.device, allow_tf32: bool) -> None:
+    """Ampere 이상 GPU에서 fp32 행렬곱/합성곱을 TF32 텐서 코어로 계산하게 한다.
+
+    정밀도가 약간 낮아지는 대신 fp32 학습이 크게 빨라진다. Turing(GTX 1660 등)에서는 효과가 없다.
+    """
+    if device.type == "cuda":
+        torch.backends.cuda.matmul.allow_tf32 = allow_tf32
+        torch.backends.cudnn.allow_tf32 = allow_tf32
+
+
 def free_device_memory(device: torch.device) -> None:
     """캐시 할당자가 잡고 있는 미사용 GPU 메모리를 반환한다."""
     if device.type == "cuda":

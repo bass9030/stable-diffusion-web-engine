@@ -25,15 +25,14 @@ import torch
 import torch.nn.functional as F
 from diffusers import AutoencoderKL, DDPMScheduler, DPMSolverMultistepScheduler, StableDiffusionPipeline, UNet2DConditionModel
 from diffusers.optimization import get_scheduler
-from diffusers.utils import convert_state_dict_to_diffusers
 from peft import LoraConfig
 from peft.utils import get_peft_model_state_dict
 from tqdm import tqdm
 
 from src.datagen.config import load_config
 from src.infer.sampler import decode_latents, make_grid, sample_latents
-from src.train.utils import (ROOT, free_device_memory, noise_schedule_kwargs, resolve_device, resolve_dtype,
-                             save_run_info, set_seed)
+from src.train.utils import (ROOT, configure_backend, free_device_memory, noise_schedule_kwargs, resolve_device,
+                             resolve_dtype, save_run_info, set_seed)
 
 log = logging.getLogger("train_lora")
 
@@ -135,7 +134,9 @@ def save_samples(step: int, out_dir: Path, unet: UNet2DConditionModel, vae: Auto
 
 def save_checkpoint(step: int, out_dir: Path, unet: UNet2DConditionModel, cfg: dict[str, Any]) -> None:
     ckpt = out_dir / "checkpoints" / f"step_{step:06d}"
-    lora_state = convert_state_dict_to_diffusers(get_peft_model_state_dict(unet))
+    # PEFT 형식(lora_A/lora_B) 그대로 저장한다. convert_state_dict_to_diffusers는 어텐션 키만 옛 형식(lora.down/up)으로
+    # 바꾸고 conv/proj 키는 남겨 형식이 섞이고, 불러올 때 어텐션 LoRA가 빠진다 (v8 체크포인트에서 확인)
+    lora_state = get_peft_model_state_dict(unet)
     StableDiffusionPipeline.save_lora_weights(ckpt, unet_lora_layers=lora_state, safe_serialization=True)
     save_run_info(ckpt, cfg, {"step": step})
 
@@ -155,6 +156,7 @@ def main() -> int:
     cfg["seed"] = seed
     set_seed(seed)
     device = resolve_device()
+    configure_backend(device, cfg["train"].get("allow_tf32", False))
     tc, dc = cfg["train"], cfg["data"]
     out_dir = ROOT / cfg["paths"]["output_dir"] / tc["run_name"]
     save_run_info(out_dir, cfg, {"device": str(device)})
