@@ -1,0 +1,20 @@
+# Phase 3 파이프라인 점검용 overfit 테스트 (학습 32장). train_html.yaml(및 프리셋) 뒤에 덮어쓴다.
+# 학습 샘플(그리드 아래쪽 4행)이 정답과 거의 같아지면 통과.
+data:
+  max_train_samples: 32
+  num_sample_val: 2
+  num_sample_train: 4
+
+train:
+  run_name: html_overfit
+  max_steps: 1500
+  learning_rate: 2.0e-5
+  lr_warmup_steps: 50
+  freeze_unet_steps: 100
+  caption_dropout: 0.0
+  sample_every: 250
+  checkpoint_every: 1500
+  keep_last_checkpoints: 1
+
+sample:
+  guidance_scale: 1.0

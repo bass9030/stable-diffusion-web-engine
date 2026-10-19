@@ -16,3 +16,5 @@ lpips==0.1.4
 scikit-image==0.26.0
 # Plan B(full fine-tuning) T4/L4 설정의 8-bit Adam용. CUDA에서만 사용
 bitsandbytes==0.50.2
+# Phase 3 CodeT5+ 토크나이저를 vocab/merges로 직접 구성 (transformers 5.20에서 저장소 설정을 못 읽음)
+tokenizers==0.23.3

@@ -10,7 +10,7 @@
     failures.jsonl        렌더링에 실패한 샘플 (실패가 있을 때만)
     summary.json          성공/실패/토큰 초과로 건너뛴 개수
 
-dataset.max_clip_tokens 가 설정되면 CLIP 토큰 수가 넘는 샘플은 렌더링 전에 건너뛰고,
+dataset.max_tokens(이전 이름 max_clip_tokens)가 설정되면 토큰 수(dataset.tokenizer_type 기준)가 넘는 샘플은 렌더링 전에 건너뛰고,
 통과한 샘플이 num_samples 개가 될 때까지 인덱스를 늘려간다 (인덱스·시드는 그대로 결정적).
 """
 from __future__ import annotations
@@ -96,19 +96,34 @@ def build_render_env(cfg: dict[str, Any], base_seed: int, browser_version: str) 
 
 
 class TokenCounter:
-    """CLIP 토크나이저로 토큰 수(BOS/EOS 포함)를 센다. 설정이 없으면 세지 않는다."""
+    """토큰 수(BOS/EOS 포함)를 센다. 설정이 없으면 세지 않는다.
 
-    def __init__(self, tokenizer_name: str | None) -> None:
-        self._tok = None
-        if tokenizer_name:
+    tokenizer_type: "clip"(Phase 2, SD 1.5 CLIP) | "codet5p"(Phase 3, CodeT5+ 바이트 단위 BPE)
+    """
+
+    def __init__(self, tokenizer_name: str | None, tokenizer_type: str = "clip") -> None:
+        self.tokenizer_type = tokenizer_type
+        self._count = None
+        if not tokenizer_name:
+            return
+        if tokenizer_type == "clip":
             from transformers import CLIPTokenizer
 
-            self._tok = CLIPTokenizer.from_pretrained(tokenizer_name, subfolder="tokenizer")
+            tok = CLIPTokenizer.from_pretrained(tokenizer_name, subfolder="tokenizer")
+            self._count = lambda text: len(tok(text, truncation=False, verbose=False).input_ids)
+        elif tokenizer_type == "codet5p":
+            from src.models.html_encoder import CodeT5pTokenizer
+
+            self._count = CodeT5pTokenizer(tokenizer_name).count
+        else:
+            raise ValueError(f"알 수 없는 tokenizer_type: {tokenizer_type}")
+
+    @property
+    def metadata_key(self) -> str:
+        return f"{self.tokenizer_type}_tokens"
 
     def count(self, text: str) -> int | None:
-        if self._tok is None:
-            return None
-        return len(self._tok(text, truncation=False, verbose=False).input_ids)
+        return None if self._count is None else self._count(text)
 
 
 def build_sample(index: int, base_seed: int, gen_cfg: GenConfig, val_ratio: float) -> dict[str, Any]:
@@ -157,8 +172,10 @@ def main() -> int:
     cfg["dataset"] = {**cfg["dataset"], "num_samples": num_samples}
 
     prepare_out_dir(out_dir, args.overwrite)
-    max_tokens = cfg["dataset"].get("max_clip_tokens")
-    counter = TokenCounter(cfg["dataset"].get("tokenizer") if max_tokens else None)
+    # max_clip_tokens는 Phase 2 설정의 이전 이름 (data/short의 render_env.json과 호환)
+    max_tokens = cfg["dataset"].get("max_tokens", cfg["dataset"].get("max_clip_tokens"))
+    counter = TokenCounter(cfg["dataset"].get("tokenizer") if max_tokens else None,
+                           cfg["dataset"].get("tokenizer_type", "clip"))
     n_ok = n_fail = n_val = n_skipped = 0
     with Renderer.from_config(cfg["render"]) as renderer,             open(out_dir / "metadata.jsonl", "w", encoding="utf-8") as meta_f,             tqdm(total=num_samples, desc="render") as pbar:
         env = build_render_env(cfg, base_seed, renderer.browser_version)
@@ -191,7 +208,7 @@ def main() -> int:
             (out_dir / f"{sample['id']}.png").write_bytes(png)
             meta_f.write(json.dumps({
                 "id": sample["id"], "index": sample["index"], "seed": sample["seed"], "split": sample["split"],
-                "html_chars": len(sample["html"]), "clip_tokens": n_tokens,
+                "html_chars": len(sample["html"]), counter.metadata_key: n_tokens,
                 "html_sha256": sha256_hex(html_bytes), "png_sha256": sha256_hex(png),
             }) + "\n")
             n_ok += 1

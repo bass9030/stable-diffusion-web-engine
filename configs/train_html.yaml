@@ -1,0 +1,33 @@
+# Phase 3: 긴 HTML 조건 입력 (CodeT5+ 인코더 고정 + projection + UNet full fine-tuning).
+# base.yaml, train_lora.yaml, train_full.yaml 위에 덮어쓴다. 24GB GPU면 뒤에 train_full_24gb.yaml을 더 붙인다.
+#   python -m src.train.cache_html --config configs/base.yaml configs/train_lora.yaml configs/train_full.yaml configs/train_html.yaml
+#   python -m src.train.train_html --config configs/base.yaml configs/train_lora.yaml configs/train_full.yaml configs/train_html.yaml
+text_encoder:
+  type: codet5p
+  name: Salesforce/codet5p-220m
+  # data/long은 이 길이(BOS/EOS 포함)를 넘는 샘플을 생성 단계에서 걸렀다
+  max_length: 512
+  dtype: float32
+
+model:
+  # Phase 2 full FT 체크포인트 (프로젝트 루트 기준). HTML 렌더링을 이미 배운 UNet에서 시작한다
+  unet_init: outputs/full_short_rental/checkpoints/step_006000
+
+data:
+  dir: data/long
+
+cache:
+  dir: outputs/cache/long
+  batch_size: 16
+
+train:
+  run_name: html_long
+  # 학습 약 2.85만 장 × 배치 8 × 10000 step ≈ 2.8 epoch
+  max_steps: 10000
+  learning_rate: 1.0e-5
+  # projection은 무작위 초기값이라 UNet보다 큰 학습률을 쓴다 (값은 추측, 실험으로 조정)
+  projection_learning_rate: 1.0e-4
+  # 처음 이 step 동안은 UNet을 고정하고 projection만 학습한다 (Phase 2 UNet의 렌더링 지식 보존 목적)
+  freeze_unet_steps: 500
+  sample_every: 1000
+  checkpoint_every: 2000

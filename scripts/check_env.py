@@ -22,6 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 REQUIRED_PACKAGES = [
     ("diffusers", "diffusers"),
     ("transformers", "transformers"),
+    ("tokenizers", "tokenizers"),
     ("accelerate", "accelerate"),
     ("peft", "peft"),
     ("safetensors", "safetensors"),

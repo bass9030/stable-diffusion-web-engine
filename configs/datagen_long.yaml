@@ -1,0 +1,12 @@
+# Phase 3용 긴 HTML 데이터셋. base.yaml, datagen.yaml 위에 덮어써서 사용한다.
+#   python -m src.datagen.build_dataset --config configs/base.yaml configs/datagen.yaml configs/datagen_long.yaml
+# 생성기 설정은 datagen.yaml(Phase 1, 제한 없음)과 같다. 같은 시드라 data/의 1만 쌍과 앞부분이 일치한다.
+paths:
+  data_dir: data/long
+
+dataset:
+  num_samples: 30000
+  # CodeT5+ 토큰 수(BOS/EOS 포함)가 Phase 3 인코더 최대 길이를 넘으면 렌더링 전에 건너뛴다 (잘린 입력으로 학습하지 않도록)
+  max_tokens: 512
+  tokenizer: Salesforce/codet5p-220m
+  tokenizer_type: codet5p

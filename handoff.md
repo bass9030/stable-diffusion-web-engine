@@ -1,6 +1,6 @@
 # handoff.md — stable-diffusion-engine
 
-작성 시점: 2026-10-19 (Phase 2 완료: 대여 A100에서 UNet full fine-tuning, 성공 기준 충족)
+작성 시점: 2026-10-19 (Phase 3 진행 중: 방법 A 구현·로컬 검증 완료, 대여 GPU 학습 전)
 프로젝트 루트: `C:\Users\bass9030\codes\stable-diffusion-engine`
 
 ## 1. 프로젝트 개요
@@ -150,6 +150,40 @@ LoRA 본 학습(`outputs/lora_short_v8`, 커밋 623723b 기준, 로컬 백그라
 - GPU 대여 조사(2026-10-18): LoRA는 RTX 4090(현재 LoRA는 fp32 UNet이라 fp32 성능이 높은 4090이 A100보다 유리할 것으로 추정), full FT는 A100 80GB 추천. 최저가는 Vast.ai(4090 중앙값 약 $0.51/h, A100 80GB 약 $0.60~0.67/h), 편의성은 RunPod Community Cloud(4090 $0.34/h, A100 80GB $1.19~1.39/h).
 - 미검증: 실제 SD UNet full FT의 메모리/속도(표의 GPU별 설정은 추정), Colab Python/패키지 버전 호환(requirements 고정 버전이 Colab 기본 환경과 충돌할 수 있음), T4 fp16 안정성, 8-bit Adam 실제 동작(CUDA 필요).
 
+## 4-4. Phase 3: 긴 HTML 조건 입력 (방법 A, 미커밋, 대여 GPU 학습 전)
+
+### 결정 사항 (사용자 확인)
+- UNet은 Phase 2 full FT 체크포인트(`outputs/full_short_rental/checkpoints/step_006000`)에서 시작, 데이터는 3만 쌍으로 확장, 인코더는 고정.
+
+### 인코더 선택 (측정)
+- 기존 1만 쌍 HTML 기준: T5/FLAN-T5는 `<`가 어휘에 없어 토큰의 7.7%가 unk(디코딩 시 `<html>`→`html>`). ByT5는 무손실이지만 토큰 중앙값 338, 512 이내 68%.
+- **CodeT5+ 220M**(`Salesforce/codet5p-220m`): 바이트 단위 BPE로 무손실, 토큰 중앙값 107 / p90 270 / 최대 693, 512 이내 99.8%, d_model 768(SD 1.5 cross-attention과 동일). 인코더 109.6M.
+- transformers 5.20에서 CodeT5 계열 토크나이저 설정을 불러오지 못해(TypeError, RobertaTokenizerFast 생성자는 빈 토큰 출력) `tokenizers.ByteLevelBPETokenizer`로 vocab.json/merges.txt를 직접 읽음. requirements에 `tokenizers==0.23.3` 명시, check_env에 추가.
+
+### 데이터 (`data/long`, `configs/datagen_long.yaml`)
+- 생성기 설정은 Phase 1과 동일(제한 없음), 3만 쌍, CodeT5+ 토큰 512 초과는 렌더링 전 제외(`dataset.max_tokens`, `tokenizer_type: codet5p`). build_dataset의 토큰 필터를 일반화(이전 키 `max_clip_tokens` 호환, 메타데이터 키 `{type}_tokens`).
+- 결과: 성공 30000(val 1503), 실패 0, 토큰 초과 92, 재현성 100/100. 같은 인덱스는 data/와 해시 일치(50/50 확인).
+
+### 코드
+- `src/models/html_encoder.py`: `CodeT5pTokenizer`, `HtmlTextEncoder`(고정), `HtmlProjection`(LayerNorm+Linear, `html_projection.safetensors`로 저장), `pad_sequences`.
+- `src/train/cache_html.py`: VAE latent + 인코더 출력(가변 길이를 이어 붙인 `hidden` + `offsets`)과 빈 HTML 출력 저장.
+- `src/train/train_html.py`: projection(lr 1e-4) + UNet(lr 1e-5) 학습, 패딩은 `encoder_attention_mask`로 가림, 처음 `freeze_unet_steps`(500) 동안 UNet 고정, 체크포인트에 UNet + projection, `--resume`.
+- `train_lora.training_loss`와 `sampler.sample_latents`에 마스크 인자 추가(없으면 기존 동작). CFG에서 uncond/cond 길이가 다르면 패딩+마스크(`concat_for_cfg`).
+- `generate.py`: config의 `text_encoder.type == codet5p`면 CodeT5+ 인코더 + 체크포인트 projection 사용, 512토큰 초과 시 경고 후 자름.
+- 설정: `configs/train_html.yaml`(10000 step, 배치 8, sample 1000/checkpoint 2000 간격), `configs/train_html_overfit.yaml`(32장, 1500 step). 24GB GPU는 `train_full_24gb.yaml`을 뒤에 붙임.
+- `scripts/pack_for_colab.py`: `--no-cache`, `--data-dir`, `--extra` 옵션 추가(.safetensors 무압축). `notebooks/rental_train.ipynb`: `MODE = "html"`(캐시 생성 셀 5-1 → overfit → 본 학습 → 추론).
+
+### 검증 (로컬)
+- 캐시: 50쌍으로 실제 VAE + CodeT5+ 실행, 샘플별 길이 = 메타데이터 토큰 수, 빈 HTML 2토큰.
+- 학습: 작은 무작위 UNet으로 바꿔치기한 CPU 스모크(bf16) — UNet 고정→해제 전환, 샘플/체크포인트(UNet+projection), 재개, 오래된 체크포인트 정리 확인.
+- 단위 확인: UNet 고정 시 projection에만 grad, 해제 시 UNet 208개 파라미터 모두 grad, 패딩 값을 바꿔도 마스크 적용 출력 동일(마스크 없으면 달라짐).
+- 추론: Phase 3 스모크 체크포인트로 `generate --full` 동작(512 초과 입력 경고), Phase 2 체크포인트 추론 회귀 없음(빨간 페이지 평균색 (240,63,60) ≈ #e33).
+- 미검증: 실제 SD UNet으로의 Phase 3 학습 메모리/속도, 3만 쌍 캐시 크기와 시간(인코더 출력 약 5GB 추정), projection 학습률과 freeze_unet_steps의 효과.
+
+### 대여 GPU 실행 순서
+1. 커밋 후 번들: `python scripts/pack_for_colab.py --no-cache --data-dir data/long --extra outputs/full_short_rental/checkpoints/step_006000` (약 2GB 예상).
+2. 인스턴스(A100 권장, 디스크 60GB 이상 권장: 캐시 수 GB + 체크포인트)에 번들과 노트북 업로드 → `MODE = "html"`, `RUN_OVERFIT = True`.
+
 ## 5. 검증 상태
 
 - `check_env.py` 문법 검사 통과.
@@ -175,5 +209,5 @@ LoRA 본 학습(`outputs/lora_short_v8`, 커밋 623723b 기준, 로컬 백그라
    - UNet full fine-tuning: fp32 + AdamW 기준 약 14GB 필요(추정) → 로컬 6GB 불가. Colab 노트북 준비됨 (4-3절)
    - 256px로 낮춰 실험 반복 속도 4배 (SD1.5는 저해상도 품질이 떨어지는 점 감안)
    - (완료) v8 설정 본 학습: 성공 기준 미달 (4-2절 '본 학습 결과')
-8. 다음 단계 후보: (a) 칼럼 레이아웃 보강(짧은 데이터셋에서 columns 가중치/자식 수 상향 후 재학습), (b) CLAUDE.md 순서대로 Phase 3(긴 HTML 조건 입력: T5 인코더 + projection). 한 번에 한 Phase 원칙상 (b)로 넘어가기 전 사용자 결정 필요.
+8. (진행 중) Phase 3 방법 A — 4-4절. 대여 GPU에서 overfit → 본 학습 필요. 칼럼 레이아웃 보강은 보류.
 9. 결과 zip은 `outputs/results_full_short.zip`(1.6GB, git 제외), 압축은 `outputs/full_short_rental/`에 풀어 둠(.ipynb_checkpoints 제외).

@@ -6,9 +6,11 @@
     python -m src.infer.generate --lora ... --html-text '<body style="background:#e33"></body>' --out x.png
 
     python -m src.infer.generate --full outputs/full_short/checkpoints/step_006000 --html ... --out x.png
+    python -m src.infer.generate --full outputs/html_long/checkpoints/step_010000 --html ... --out x.png   (Phase 3)
 
 --lora / --full 을 모두 생략하면 베이스 모델(SD 1.5) 그대로 생성한다.
 모델/샘플링 설정은 체크포인트의 config.yaml(없으면 --config)을 따른다.
+config의 text_encoder.type이 codet5p(Phase 3)이면 CLIP 대신 CodeT5+ 인코더와 체크포인트의 projection을 쓴다.
 """
 from __future__ import annotations
 
@@ -25,6 +27,7 @@ from transformers import CLIPTextModel, CLIPTokenizer
 
 from src.datagen.config import load_config
 from src.infer.sampler import decode_latents, sample_latents
+from src.models.html_encoder import HtmlProjection, HtmlTextEncoder
 from src.train.utils import ROOT, noise_schedule_kwargs, resolve_device, resolve_dtype, set_seed
 
 log = logging.getLogger("generate")
@@ -53,10 +56,7 @@ def load_models(cfg: dict[str, Any], lora_dir: Path | None, device: torch.device
     if lora_dir is not None:
         unet.load_lora_adapter(load_lora_state_dict(lora_dir), prefix="unet")
     return {
-        "tokenizer": CLIPTokenizer.from_pretrained(m["name"], subfolder="tokenizer"),
-        "text_encoder": CLIPTextModel.from_pretrained(
-            m["name"], subfolder="text_encoder", variant=m["variant"],
-            torch_dtype=resolve_dtype(m["text_encoder_dtype"], device)).to(device).eval(),
+        **load_text_conditioner(cfg, full_dir, device),
         "vae": AutoencoderKL.from_pretrained(
             m["name"], subfolder="vae", variant=m["variant"],
             torch_dtype=resolve_dtype(m["vae_dtype"], device)).to(device).eval(),
@@ -67,15 +67,37 @@ def load_models(cfg: dict[str, Any], lora_dir: Path | None, device: torch.device
     }
 
 
+def load_text_conditioner(cfg: dict[str, Any], ckpt_dir: Path | None, device: torch.device) -> dict[str, Any]:
+    """조건 인코더: Phase 2는 CLIP, Phase 3(text_encoder.type == codet5p)은 CodeT5+ 인코더 + projection."""
+    m, tc = cfg["model"], cfg.get("text_encoder", {})
+    if tc.get("type") == "codet5p":
+        if ckpt_dir is None:
+            raise SystemExit("Phase 3 모델은 projection이 든 체크포인트(--full)가 필요하다.")
+        return {"html_encoder": HtmlTextEncoder(tc["name"], tc["max_length"], device, resolve_dtype(tc["dtype"], device)),
+                "projection": HtmlProjection.load(ckpt_dir).to(device).eval()}
+    return {"tokenizer": CLIPTokenizer.from_pretrained(m["name"], subfolder="tokenizer"),
+            "text_encoder": CLIPTextModel.from_pretrained(
+                m["name"], subfolder="text_encoder", variant=m["variant"],
+                torch_dtype=resolve_dtype(m["text_encoder_dtype"], device)).to(device).eval()}
+
+
 @torch.no_grad()
-def encode(text: str, models: dict[str, Any], device: torch.device) -> torch.Tensor:
+def encode(text: str, models: dict[str, Any], device: torch.device) -> tuple[torch.Tensor, torch.Tensor | None]:
+    """조건 임베딩과 마스크. CLIP은 고정 77토큰이라 마스크가 None이다."""
+    if "html_encoder" in models:
+        enc = models["html_encoder"]
+        n_tokens = enc.tokenizer.count(text)
+        if n_tokens > enc.max_length:
+            log.warning("입력이 %d토큰으로 %d토큰을 넘어 뒷부분이 잘린다", n_tokens, enc.max_length)
+        hidden, mask = enc.encode([text])
+        return models["projection"](hidden.float()), mask
     tok = models["tokenizer"]
     n_tokens = len(tok(text, truncation=False, verbose=False).input_ids)
     if n_tokens > tok.model_max_length:
         log.warning("입력이 %d토큰으로 %d토큰을 넘어 뒷부분이 잘린다", n_tokens, tok.model_max_length)
     ids = tok([text], padding="max_length", max_length=tok.model_max_length,
               truncation=True, return_tensors="pt").input_ids.to(device)
-    return models["text_encoder"](ids)[0]
+    return models["text_encoder"](ids)[0], None
 
 
 def main() -> int:
@@ -106,14 +128,14 @@ def main() -> int:
     html = args.html.read_text(encoding="utf-8") if args.html else args.html_text
 
     models = load_models(cfg, args.lora, device, args.full)
-    cond = encode(html, models, device)
-    uncond = encode("", models, device)
+    cond, cond_mask = encode(html, models, device)
+    uncond, uncond_mask = encode("", models, device)
     latents = sample_latents(
         models["unet"], models["scheduler"], cond, uncond,
         args.steps or cfg["sample"]["num_inference_steps"],
         args.guidance if args.guidance is not None else cfg["sample"]["guidance_scale"],
         cfg["data"]["resolution"] // 8, torch.Generator("cpu").manual_seed(args.seed),
-        cfg["sample"].get("guidance_rescale", 0.0))
+        cfg["sample"].get("guidance_rescale", 0.0), cond_mask=cond_mask, uncond_mask=uncond_mask)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     decode_latents(models["vae"], latents)[0].save(args.out)
     log.info("저장 -> %s", args.out)

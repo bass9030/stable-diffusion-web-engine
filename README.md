@@ -62,5 +62,21 @@ python -m src.infer.generate --lora outputs/lora_short_v8/checkpoints/step_00300
 `MODE = "lora"`(추천 GPU: RTX 4090)는 v8 LoRA 본 학습, `MODE = "full"`(추천 GPU: A100 80GB)은 UNet full fine-tuning.
 결과는 `/workspace/results_<run>.zip`으로 묶이며, 인스턴스를 삭제하기 전에 내려받는다.
 
+## Phase 3: 긴 HTML 조건 입력 (CodeT5+ 인코더 + projection)
+
+CLIP(77토큰) 대신 CodeT5+ 220M 인코더(고정, 최대 512토큰)의 출력을 projection(LayerNorm + Linear)으로 UNet cross-attention에 넣는다.
+UNet은 Phase 2 full FT 체크포인트에서 시작해 projection과 함께 학습한다. 학습은 대여 GPU를 전제로 한다.
+
+```powershell
+# 긴 HTML 데이터셋 3만 쌍 (CodeT5+ 512토큰 초과는 렌더링 전 제외) → data/long
+python -m src.datagen.build_dataset --config configs/base.yaml configs/datagen.yaml configs/datagen_long.yaml
+# 대여 GPU용 번들: 원본 데이터 + 시작점 UNet (캐시는 대여 GPU에서 생성)
+python scripts/pack_for_colab.py --no-cache --data-dir data/long --extra outputs/full_short_rental/checkpoints/step_006000
+```
+
+대여 인스턴스에서 `notebooks/rental_train.ipynb`를 `MODE = "html"`로 실행한다 (캐시 생성 → overfit → 본 학습).
+추론은 Phase 2와 같이 `python -m src.infer.generate --full <checkpoints/step_XXXXXX> --html ... --out ...`
+(체크포인트의 config가 codet5p면 CodeT5+ 인코더와 projection을 자동으로 쓴다).
+
 `check_env.py`는 패키지 import, torch 장치(CUDA/ROCm/MPS/DirectML/CPU), Playwright 렌더링과 렌더 결과 재현성, 디스크 여유 공간을 검사한다.
 `[FAIL]`이 하나라도 있으면 종료 코드 1을 반환한다. GPU 가속이 없는 것은 `[WARN]`이며, 학습은 클라우드 GPU를 쓰는 것을 전제로 한다.

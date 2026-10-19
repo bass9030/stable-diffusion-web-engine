@@ -80,7 +80,9 @@ def sample_timesteps(n: int, num_train_timesteps: int, high_prob: float, high_mi
 
 
 def training_loss(unet: UNet2DConditionModel, noise_scheduler: DDPMScheduler, latents: torch.Tensor,
-                  embeds: torch.Tensor, generator: torch.Generator, tc: dict[str, Any]) -> torch.Tensor:
+                  embeds: torch.Tensor, generator: torch.Generator, tc: dict[str, Any],
+                  encoder_attention_mask: torch.Tensor | None = None) -> torch.Tensor:
+    """encoder_attention_mask: [B, L] (1=유효 토큰). 가변 길이 조건(Phase 3)에서 패딩을 무시하게 한다."""
     noise_offset = tc["noise_offset"]
     noise = torch.randn(latents.shape, generator=generator, device="cpu")
     if noise_offset > 0:
@@ -90,7 +92,8 @@ def training_loss(unet: UNet2DConditionModel, noise_scheduler: DDPMScheduler, la
     timesteps = sample_timesteps(latents.shape[0], noise_scheduler.config.num_train_timesteps,
                                  tc["high_timestep_prob"], tc["high_timestep_min"], generator).to(latents.device)
     noisy = noise_scheduler.add_noise(latents, noise, timesteps)
-    pred = unet(noisy.to(unet.dtype), timesteps, encoder_hidden_states=embeds.to(unet.dtype)).sample
+    pred = unet(noisy.to(unet.dtype), timesteps, encoder_hidden_states=embeds.to(unet.dtype),
+                encoder_attention_mask=encoder_attention_mask).sample
     if noise_scheduler.config.prediction_type == "v_prediction":
         target = noise_scheduler.get_velocity(latents, noise, timesteps)
     else:
