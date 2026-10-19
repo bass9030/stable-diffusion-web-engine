@@ -101,7 +101,7 @@ stable-diffusion-engine/
 - [x] Phase 0: 환경 점검 스크립트(`python scripts/check_env.py`)를 사용자 PC에서 실행해 FAIL 없음 확인 (2026-10-18, OK 24 / WARN 1 / FAIL 0)
 - [x] Phase 1: 1만 쌍 데이터셋 생성, 시드 재현성 확인 (2026-10-18, 실패 0, val 517, 재현성 100/100 일치)
 - [x] Phase 2: 짧은 HTML 입력 모델이 학습·추론까지 동작 (2026-10-19, SD 1.5 UNet full fine-tuning, 검증 샘플 픽셀 MSE 0.0025)
-- [ ] Phase 3: 긴 HTML 조건 입력 구현 및 학습
+- [x] Phase 3: 긴 HTML 조건 입력 구현 및 학습 (2026-10-19, 방법 A: CodeT5+ 인코더 + projection + UNet full FT, 긴 HTML 검증 MSE 0.083→0.041)
 - [ ] Phase 4: 검증셋 지표 측정, 버전별 비교표 작성
 
 ## 7. 참고 자료

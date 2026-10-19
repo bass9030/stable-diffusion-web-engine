@@ -1,6 +1,6 @@
 # handoff.md — stable-diffusion-engine
 
-작성 시점: 2026-10-19 (Phase 3 진행 중: 방법 A 구현·로컬 검증 완료, 대여 GPU 학습 전)
+작성 시점: 2026-10-19 (Phase 3 완료: 방법 A 학습·평가, 다음은 Phase 4)
 프로젝트 루트: `C:\Users\bass9030\codes\stable-diffusion-engine`
 
 ## 1. 프로젝트 개요
@@ -150,7 +150,7 @@ LoRA 본 학습(`outputs/lora_short_v8`, 커밋 623723b 기준, 로컬 백그라
 - GPU 대여 조사(2026-10-18): LoRA는 RTX 4090(현재 LoRA는 fp32 UNet이라 fp32 성능이 높은 4090이 A100보다 유리할 것으로 추정), full FT는 A100 80GB 추천. 최저가는 Vast.ai(4090 중앙값 약 $0.51/h, A100 80GB 약 $0.60~0.67/h), 편의성은 RunPod Community Cloud(4090 $0.34/h, A100 80GB $1.19~1.39/h).
 - 미검증: 실제 SD UNet full FT의 메모리/속도(표의 GPU별 설정은 추정), Colab Python/패키지 버전 호환(requirements 고정 버전이 Colab 기본 환경과 충돌할 수 있음), T4 fp16 안정성, 8-bit Adam 실제 동작(CUDA 필요).
 
-## 4-4. Phase 3: 긴 HTML 조건 입력 (방법 A, 커밋 0598cc0, 대여 GPU 학습 전)
+## 4-4. Phase 3: 긴 HTML 조건 입력 (방법 A, 커밋 0598cc0, 학습 완료)
 
 ### 결정 사항 (사용자 확인)
 - UNet은 Phase 2 full FT 체크포인트(`outputs/full_short_rental/checkpoints/step_006000`)에서 시작, 데이터는 3만 쌍으로 확장, 인코더는 고정.
@@ -179,6 +179,15 @@ LoRA 본 학습(`outputs/lora_short_v8`, 커밋 623723b 기준, 로컬 백그라
 - 단위 확인: UNet 고정 시 projection에만 grad, 해제 시 UNet 208개 파라미터 모두 grad, 패딩 값을 바꿔도 마스크 적용 출력 동일(마스크 없으면 달라짐).
 - 추론: Phase 3 스모크 체크포인트로 `generate --full` 동작(512 초과 입력 경고), Phase 2 체크포인트 추론 회귀 없음(빨간 페이지 평균색 (240,63,60) ≈ #e33).
 - 미검증: 실제 SD UNet으로의 Phase 3 학습 메모리/속도, 3만 쌍 캐시 크기와 시간(인코더 출력 약 5GB 추정), projection 학습률과 freeze_unet_steps의 효과.
+
+### 학습 결과 (Vast.ai A100 40GB, `outputs/html_long_rental`, 번들 커밋 c52989d)
+- 설정: train_full + train_html + train_full_24gb(배치 4×2, bf16, 8-bit Adam), 10000 step, UNet은 Phase 2 체크포인트에서 시작, 처음 500 step UNet 고정. 약 100분, 최대 메모리 10.8GB(UNet 고정 구간 4.9GB). git_commit은 null(번들에 .git 없음).
+- 학습 중 샘플 MSE(긴 HTML, val 4 / train 2): step 0 val 0.099 → 1000: 0.169(UNet 적응 중 일시 악화) → 3000: 0.048 → 8000: 0.022 → 10000: 0.024. 검증 샘플에서 칼럼 배치·버튼·박스·배경색 대부분 일치.
+- 처음 보는 HTML 비교(로컬 GTX 1660 fp32, guidance 3.0, `eval_phase3` 스크래치 스크립트):
+  - 짧은 HTML 7개(Phase 2 평가와 동일): Phase 2 평균 0.0166 → Phase 3 0.0054. Phase 2가 틀린 2칼럼 입력을 Phase 3는 맞힘(0.088 → 0.017). 일부 샘플은 약간 나빠짐(0.0026→0.0039 등).
+  - 긴 HTML(data/long 검증 중 CodeT5+ 150토큰 초과 6개): Phase 2 평균 약 0.083 → Phase 3 약 0.041. Phase 2는 77토큰에서 잘려 배경과 첫 요소만, Phase 3는 페이지 전체 구조를 그림.
+  - 직접 만든 긴 페이지 2개: 구조(내비 바·3칼럼·버튼·푸터)는 Phase 3만 재현하지만, 칼럼 높이 차이로 MSE가 오히려 높게 나오는 경우가 있음(0.119 → 0.197) → 픽셀 MSE는 큰 블록 위치 오차에 민감. Phase 4에서 LPIPS/SSIM 등 병행 필요.
+- 결론: Phase 3 마일스톤 달성. 방법 A로 충분해 방법 B(DOM 레이아웃 조건) 비교는 보류.
 
 ### 대여 GPU 실행 순서
 1. 커밋 후 번들: `python scripts/pack_for_colab.py --no-cache --data-dir data/long --extra outputs/full_short_rental/checkpoints/step_006000` (약 2GB 예상).
@@ -209,5 +218,5 @@ LoRA 본 학습(`outputs/lora_short_v8`, 커밋 623723b 기준, 로컬 백그라
    - UNet full fine-tuning: fp32 + AdamW 기준 약 14GB 필요(추정) → 로컬 6GB 불가. Colab 노트북 준비됨 (4-3절)
    - 256px로 낮춰 실험 반복 속도 4배 (SD1.5는 저해상도 품질이 떨어지는 점 감안)
    - (완료) v8 설정 본 학습: 성공 기준 미달 (4-2절 '본 학습 결과')
-8. (진행 중) Phase 3 방법 A — 4-4절. 대여 GPU에서 overfit → 본 학습 필요. 칼럼 레이아웃 보강은 보류.
-9. 결과 zip은 `outputs/results_full_short.zip`(1.6GB, git 제외), 압축은 `outputs/full_short_rental/`에 풀어 둠(.ipynb_checkpoints 제외).
+8. (완료) Phase 3 방법 A — 4-4절. 다음은 Phase 4(지표: LPIPS/SSIM/CLIP score/OCR, 고정 검증셋에서 Phase 2·3 버전 비교표).
+9. 결과 zip은 `outputs/results_full_short.zip`(Phase 2), `outputs/results_html_long.zip`(Phase 3), 압축은 각각 `outputs/full_short_rental/`, `outputs/html_long_rental/`에 풀어 둠(git 제외, .ipynb_checkpoints 제외).
