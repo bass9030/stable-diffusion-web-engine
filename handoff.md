@@ -193,7 +193,7 @@ LoRA 본 학습(`outputs/lora_short_v8`, 커밋 623723b 기준, 로컬 백그라
 1. 커밋 후 번들: `python scripts/pack_for_colab.py --no-cache --data-dir data/long --extra outputs/full_short_rental/checkpoints/step_006000` (약 2GB 예상).
 2. 인스턴스(A100 권장, 디스크 60GB 이상 권장: 캐시 수 GB + 체크포인트)에 번들과 노트북 업로드 → `MODE = "html"`, `RUN_OVERFIT = True`.
 
-## 4-5. Phase 4: 평가 (미커밋)
+## 4-5. Phase 4: 평가 (커밋 e9e3d04)
 
 ### 구현
 - `configs/eval.yaml`: 고정 검증셋(data/short, data/long의 val에서 eval seed 1234로 50개씩, 학습 미사용), 비교 모델(lora_v8, phase2_full, phase3_html), 생성 설정 고정(25 step, guidance 3.0, 샘플 i의 시드 = 1234 + i).
