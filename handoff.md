@@ -176,4 +176,4 @@ LoRA 본 학습(`outputs/lora_short_v8`, 커밋 623723b 기준, 로컬 백그라
    - 256px로 낮춰 실험 반복 속도 4배 (SD1.5는 저해상도 품질이 떨어지는 점 감안)
    - (완료) v8 설정 본 학습: 성공 기준 미달 (4-2절 '본 학습 결과')
 8. 다음 단계 후보: (a) 칼럼 레이아웃 보강(짧은 데이터셋에서 columns 가중치/자식 수 상향 후 재학습), (b) CLAUDE.md 순서대로 Phase 3(긴 HTML 조건 입력: T5 인코더 + projection). 한 번에 한 Phase 원칙상 (b)로 넘어가기 전 사용자 결정 필요.
-9. 결과 zip `results_full_short.zip`(1.6GB)이 프로젝트 루트에 있음 (.gitignore 대상 아님, `outputs/`로 옮기는 것을 권장). 압축은 `outputs/full_short_rental/`에 풀어 둠(.ipynb_checkpoints 제외).
+9. 결과 zip은 `outputs/results_full_short.zip`(1.6GB, git 제외), 압축은 `outputs/full_short_rental/`에 풀어 둠(.ipynb_checkpoints 제외).
