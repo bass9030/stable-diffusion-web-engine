@@ -1,6 +1,6 @@
 # stable-diffusion-web-engine
 
-![정답 렌더링(왼쪽)과 Phase 3 생성 결과(오른쪽)](https://github.com/bass9030/stable-diffusion-web-engine/blob/main/docs/images/sample_001877.png.png)
+![정답 렌더링(왼쪽)과 Phase 3 생성 결과(오른쪽)](https://github.com/bass9030/stable-diffusion-web-engine/blob/main/docs/images/sample_001877.png)
 
 HTML 소스를 입력하면 그 HTML을 브라우저로 렌더링한 것처럼 보이는 이미지를 생성하는 Stable Diffusion 모델을 만드는 취미/학습 프로젝트입니다.
 정확한 렌더링은 브라우저의 몫이고, 이 프로젝트의 목표는 **단순한 HTML을 넣었을 때 레이아웃(블록 위치, 배경색, 대략적인 요소 배치)이 원본 렌더링과 눈에 띄게 닮은 이미지**를 만드는 것입니다.
@@ -226,6 +226,10 @@ stable-diffusion-engine/
 - **6GB GPU에서 학습할 때**: 브라우저 등 다른 앱과 VRAM을 나눠 쓰다 공유 메모리로 넘치면 학습이 몇 배 느려지고, 앱을 닫아도 회복되지 않았습니다. 이때는 학습을 다시 시작해야 합니다.
 - **CodeT5+ 토크나이저**: transformers 5.20에서 저장소 설정을 불러오지 못해, `tokenizers`로 vocab/merges를 직접 읽습니다(`src/models/html_encoder.py`).
 - **클라우드 노트북**: 셸에 `python` 명령이 없는 템플릿이 있어 노트북은 `python3`로 실행합니다.
+
+## Special Thanks
+
+- X(구 트위터) 시프트([@shiftpsh](https://x.com/shiftpsh))님: [아이디어 제공](https://x.com/shiftpsh/status/2111436630871724539)
 
 ## 참고
 
