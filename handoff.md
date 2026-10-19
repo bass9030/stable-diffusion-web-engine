@@ -150,7 +150,7 @@ LoRA 본 학습(`outputs/lora_short_v8`, 커밋 623723b 기준, 로컬 백그라
 - GPU 대여 조사(2026-10-18): LoRA는 RTX 4090(현재 LoRA는 fp32 UNet이라 fp32 성능이 높은 4090이 A100보다 유리할 것으로 추정), full FT는 A100 80GB 추천. 최저가는 Vast.ai(4090 중앙값 약 $0.51/h, A100 80GB 약 $0.60~0.67/h), 편의성은 RunPod Community Cloud(4090 $0.34/h, A100 80GB $1.19~1.39/h).
 - 미검증: 실제 SD UNet full FT의 메모리/속도(표의 GPU별 설정은 추정), Colab Python/패키지 버전 호환(requirements 고정 버전이 Colab 기본 환경과 충돌할 수 있음), T4 fp16 안정성, 8-bit Adam 실제 동작(CUDA 필요).
 
-## 4-4. Phase 3: 긴 HTML 조건 입력 (방법 A, 미커밋, 대여 GPU 학습 전)
+## 4-4. Phase 3: 긴 HTML 조건 입력 (방법 A, 커밋 0598cc0, 대여 GPU 학습 전)
 
 ### 결정 사항 (사용자 확인)
 - UNet은 Phase 2 full FT 체크포인트(`outputs/full_short_rental/checkpoints/step_006000`)에서 시작, 데이터는 3만 쌍으로 확장, 인코더는 고정.
