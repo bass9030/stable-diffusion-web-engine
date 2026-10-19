@@ -25,3 +25,6 @@ metrics:
   ocr_languages: [en]
   # 비교 그리드에 넣을 세트별 샘플 수
   grid_samples: 8
+  # 그리드 한 칸의 크기(px)와 모델 이름 라벨 글꼴 크기(px). 라벨은 칸 크기로 줄인 뒤에 그린다
+  grid_cell_size: 384
+  grid_font_size: 18

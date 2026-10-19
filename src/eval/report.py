@@ -1,7 +1,7 @@
 """Phase 4: 생성 이미지(generate_eval.py)와 정답 렌더링을 비교해 지표 표와 비교 그리드를 만든다.
 
 사용법:
-    python -m src.eval.report --config configs/base.yaml configs/eval.yaml [--models ...] [--no-ocr]
+    python -m src.eval.report --config configs/base.yaml configs/eval.yaml [--models ...] [--no-ocr] [--grids-only]
 
 출력 (eval.out_dir 아래):
     metrics.csv       샘플별 지표 (model, set, id, mse, ssim, lpips, clip, ocr)
@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 from tqdm import tqdm
 
 from src.datagen.config import load_config
@@ -98,24 +98,30 @@ def markdown_table(summary: dict[str, dict[str, Any]], sets: list[str], seed: in
     return "\n".join(lines)
 
 
-def label(img: Image.Image, text: str) -> Image.Image:
+def label(img: Image.Image, text: str, font_size: int) -> Image.Image:
+    """좌상단에 검은 바탕 흰 글씨 라벨을 그린다. 크기를 줄인 뒤에 그려야 글자가 뭉개지지 않는다."""
     img = img.copy()
     draw = ImageDraw.Draw(img)
-    draw.rectangle([0, 0, 8 * len(text) + 8, 18], fill=(0, 0, 0))
-    draw.text((4, 3), text, fill=(255, 255, 255))
+    font = ImageFont.load_default(size=font_size)
+    pad = max(2, font_size // 4)
+    left, top, right, bottom = draw.textbbox((pad, pad), text, font=font)
+    draw.rectangle([0, 0, right + pad, bottom + pad], fill=(0, 0, 0))
+    draw.text((pad, pad), text, fill=(255, 255, 255), font=font)
     return img
 
 
-def save_grids(models: list[str], eval_sets: dict[str, Any], out_dir: Path, n: int) -> None:
+def save_grids(models: list[str], eval_sets: dict[str, Any], out_dir: Path, n: int, cell: int,
+               font_size: int) -> None:
     for set_name, es in eval_sets.items():
         rows = []
         for sample_id in es["ids"][:n]:
-            row = [label(Image.open(ROOT / es["data_dir"] / f"{sample_id}.png").convert("RGB"), f"target {sample_id}")]
+            target = Image.open(ROOT / es["data_dir"] / f"{sample_id}.png").convert("RGB")
+            cells = [(target, f"target {sample_id}")]
             for model in models:
                 path = out_dir / model / set_name / f"{sample_id}.png"
-                img = Image.open(path).convert("RGB") if path.exists() else Image.new("RGB", row[0].size, "black")
-                row.append(label(img, model))
-            rows.append([im.resize((256, 256)) for im in row])
+                img = Image.open(path).convert("RGB") if path.exists() else Image.new("RGB", target.size, "black")
+                cells.append((img, model))
+            rows.append([label(img.resize((cell, cell), Image.LANCZOS), text, font_size) for img, text in cells])
         if rows:
             make_grid(rows).save(out_dir / f"grid_{set_name}.png")
 
@@ -129,6 +135,7 @@ def main() -> int:
     p.add_argument("--config", type=Path, nargs="+", required=True)
     p.add_argument("--models", nargs="*", default=None, help="비교할 모델 이름 (기본값: 설정의 전체)")
     p.add_argument("--no-ocr", action="store_true", help="OCR 지표를 건너뛴다 (가장 느림)")
+    p.add_argument("--grids-only", action="store_true", help="지표 계산 없이 비교 그리드만 다시 만든다")
     args = p.parse_args()
 
     cfg = load_config(args.config)
@@ -137,6 +144,11 @@ def main() -> int:
     eval_info = json.loads((out_dir / "eval_set.json").read_text(encoding="utf-8"))
     eval_sets, seed = eval_info["sets"], eval_info["seed"]
     models = args.models or list(ec["models"])
+    grid_args = (mc["grid_samples"], mc["grid_cell_size"], mc["grid_font_size"])
+    if args.grids_only:
+        save_grids(models, eval_sets, out_dir, *grid_args)
+        log.info("그리드만 저장 -> %s", out_dir)
+        return 0
 
     rows = evaluate(models, eval_sets, out_dir, mc, not args.no_ocr, resolve_device())
     with open(out_dir / "metrics.csv", "w", encoding="utf-8", newline="") as f:
@@ -147,7 +159,7 @@ def main() -> int:
     (out_dir / "summary.json").write_text(json.dumps({"seed": seed, "summary": summary}, indent=1), encoding="utf-8")
     report = markdown_table(summary, list(eval_sets), seed)
     (out_dir / "report.md").write_text(report, encoding="utf-8")
-    save_grids(models, eval_sets, out_dir, mc["grid_samples"])
+    save_grids(models, eval_sets, out_dir, *grid_args)
     print(report)
     return 0
 
