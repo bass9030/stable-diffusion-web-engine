@@ -1,6 +1,6 @@
 # handoff.md — stable-diffusion-engine
 
-작성 시점: 2026-10-18 (Phase 2 진행 중: LoRA v8 본 학습 완료, 성공 기준 미달 → full FT 검토)
+작성 시점: 2026-10-19 (Phase 2 완료: 대여 A100에서 UNet full fine-tuning, 성공 기준 충족)
 프로젝트 루트: `C:\Users\bass9030\codes\stable-diffusion-engine`
 
 ## 1. 프로젝트 개요
@@ -127,6 +127,13 @@ requirements-torch.txt: torch 2.14.1, torchvision 0.29.1.
 - 버그 수정(미커밋): 체크포인트 저장 시 `convert_state_dict_to_diffusers`가 어텐션 키만 옛 형식(lora.down/up)으로 바꿔 conv/proj 키(lora_A/B)와 섞였고, `generate.py`에서 불러오면 어텐션 LoRA 128개가 빠져 회색 화면만 나왔음. 저장은 PEFT 형식 그대로, 로드는 키를 PEFT 형식으로 통일(`load_lora_state_dict`)하도록 수정. 기존 v8 체크포인트 로드(204개 모듈) 및 저장→로드 왕복(차이 0) 확인. 학습 중 샘플/MSE는 메모리상 모델로 만들어 영향 없음. 어텐션만 학습한 v1~v7 체크포인트도 영향 없음.
 - 판단: 같은 설정의 LoRA를 대여 GPU에서 다시 돌리면 속도만 빨라질 뿐 결과는 비슷할 것으로 예상. 다음은 full fine-tuning(대여 A100 80GB) 또는 LoRA 설정 변경(rank/데이터/step)이 후보.
 
+### full fine-tuning 결과 (Vast.ai A100-SXM4-40GB, `outputs/full_short_rental`, 번들 커밋 766ff90)
+- 설정: `train_full.yaml` + `train_full_24gb.yaml`(VRAM 39.5GB라 자동 선택: 배치 4×2, bf16, 8-bit Adam), v-pred + zero SNR, lr 1e-5, 6000 step. 약 59분, 최대 메모리 10.8GB. overfit 테스트 후 본 학습.
+- run_info.json의 git_commit은 null (번들에 .git이 없음). 코드 기준은 번들의 BUNDLE_INFO.json(766ff90). 노트북 셸 명령은 인스턴스에서 python3로 고쳐 실행 (이후 5bd8a38로 반영).
+- 학습 중 샘플 MSE(val 4 / train 2): step 0 val 0.188 → 1500: 0.016 → 3500: 0.0036 → 6000: 0.0034. 검증 샘플에서 배경색·버튼·제목 위치·박스까지 정답과 거의 같음. 글자는 대략적인 모양만.
+- 처음 보는 HTML 추론(로컬 GTX 1660, fp32, LoRA v8과 같은 7개 입력, guidance 1/3/5): 검증 4개 MSE 약 0.0025(LoRA v8 0.10), 직접 만든 빨간 페이지 0.003, 흰 배경+파란 박스 0.016으로 위치·크기·색 일치. 어두운 배경 + 2칼럼(min-height 200px) 입력만 칼럼 대신 작은 노란 박스(0.088) → 짧은 데이터셋에서 칼럼 컴포넌트가 드물어서로 추정. guidance 영향 거의 없음.
+- 결론: Phase 2 성공 기준 충족. LoRA(어텐션+conv/proj, rank 64)로는 부족했고 UNet 전체 학습이 필요했음.
+
 ## 4-3. Plan B: 클라우드 GPU 학습 (Colab / 대여 GPU, 클라우드 실행 전)
 
 LoRA 본 학습(`outputs/lora_short_v8`, 커밋 623723b 기준, 로컬 백그라운드 실행 중) 결과가 부족할 때를 대비.
@@ -164,7 +171,9 @@ LoRA 본 학습(`outputs/lora_short_v8`, 커밋 623723b 기준, 로컬 백그라
 4. 알려진 잔여물: `scripts/__pycache__/`가 남아 있음 (삭제 권한이 없어 지우지 못함, .gitignore에 포함).
 5. git 저장소 초기화 완료 (브랜치 `main`, Phase 0 산출물로 첫 커밋). 원격 저장소는 없음.
 6. (완료) 토큰 수 측정 및 짧은 데이터셋 생성.
-7. Phase 2 overfit 테스트 미통과 (v1~v8). 시도 완료: step 증가, rank 64, zero terminal SNR + v-prediction, conv/proj LoRA. 남은 후보:
+7. (완료) Phase 2: full fine-tuning으로 성공 기준 충족 (4-2절). 이전 LoRA 기록: overfit 테스트 미통과 (v1~v8). 시도 완료: step 증가, rank 64, zero terminal SNR + v-prediction, conv/proj LoRA. 남은 후보:
    - UNet full fine-tuning: fp32 + AdamW 기준 약 14GB 필요(추정) → 로컬 6GB 불가. Colab 노트북 준비됨 (4-3절)
    - 256px로 낮춰 실험 반복 속도 4배 (SD1.5는 저해상도 품질이 떨어지는 점 감안)
    - (완료) v8 설정 본 학습: 성공 기준 미달 (4-2절 '본 학습 결과')
+8. 다음 단계 후보: (a) 칼럼 레이아웃 보강(짧은 데이터셋에서 columns 가중치/자식 수 상향 후 재학습), (b) CLAUDE.md 순서대로 Phase 3(긴 HTML 조건 입력: T5 인코더 + projection). 한 번에 한 Phase 원칙상 (b)로 넘어가기 전 사용자 결정 필요.
+9. 결과 zip `results_full_short.zip`(1.6GB)이 프로젝트 루트에 있음 (.gitignore 대상 아님, `outputs/`로 옮기는 것을 권장). 압축은 `outputs/full_short_rental/`에 풀어 둠(.ipynb_checkpoints 제외).
