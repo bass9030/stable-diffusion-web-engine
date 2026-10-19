@@ -1,0 +1,27 @@
+# Phase 4 평가 설정. base.yaml 위에 덮어써서 사용한다.
+#   python -m src.eval.generate_eval --config configs/base.yaml configs/eval.yaml
+#   python -m src.eval.report        --config configs/base.yaml configs/eval.yaml
+eval:
+  # 검증셋 샘플 선택과 생성 노이즈의 기본 시드 (샘플 i의 생성 시드 = seed + 인덱스)
+  seed: 1234
+  out_dir: outputs/eval
+  # 고정 검증셋: 각 데이터셋의 val split에서 num_samples개를 시드로 결정적으로 고른다 (학습에 쓰지 않음)
+  sets:
+    short: {data_dir: data/short, num_samples: 50}
+    long: {data_dir: data/long, num_samples: 50}
+  # 비교할 모델 버전. kind: lora(CLIP + LoRA) | full(체크포인트 UNet, config의 text_encoder에 따라 CLIP/CodeT5+)
+  models:
+    lora_v8: {kind: lora, ckpt: outputs/lora_short_v8/checkpoints/step_003000}
+    phase2_full: {kind: full, ckpt: outputs/full_short_rental/checkpoints/step_006000}
+    phase3_html: {kind: full, ckpt: outputs/html_long_rental/checkpoints/step_010000}
+  # 생성 설정을 모델과 무관하게 고정한다 (체크포인트 config의 sample 값 대신 사용)
+  num_inference_steps: 25
+  guidance_scale: 3.0
+
+metrics:
+  lpips_net: alex
+  # 생성-정답 이미지의 CLIP 임베딩 코사인 유사도 (입력이 HTML이라 이미지-텍스트 CLIP score 대신 사용)
+  clip_model: openai/clip-vit-base-patch32
+  ocr_languages: [en]
+  # 비교 그리드에 넣을 세트별 샘플 수
+  grid_samples: 8

@@ -1,6 +1,6 @@
 # handoff.md — stable-diffusion-engine
 
-작성 시점: 2026-10-19 (Phase 3 완료: 방법 A 학습·평가, 다음은 Phase 4)
+작성 시점: 2026-10-20 (Phase 4 완료: 고정 검증셋 지표·버전별 비교표)
 프로젝트 루트: `C:\Users\bass9030\codes\stable-diffusion-engine`
 
 ## 1. 프로젝트 개요
@@ -193,6 +193,50 @@ LoRA 본 학습(`outputs/lora_short_v8`, 커밋 623723b 기준, 로컬 백그라
 1. 커밋 후 번들: `python scripts/pack_for_colab.py --no-cache --data-dir data/long --extra outputs/full_short_rental/checkpoints/step_006000` (약 2GB 예상).
 2. 인스턴스(A100 권장, 디스크 60GB 이상 권장: 캐시 수 GB + 체크포인트)에 번들과 노트북 업로드 → `MODE = "html"`, `RUN_OVERFIT = True`.
 
+## 4-5. Phase 4: 평가 (미커밋)
+
+### 구현
+- `configs/eval.yaml`: 고정 검증셋(data/short, data/long의 val에서 eval seed 1234로 50개씩, 학습 미사용), 비교 모델(lora_v8, phase2_full, phase3_html), 생성 설정 고정(25 step, guidance 3.0, 샘플 i의 시드 = 1234 + i).
+- `src/eval/generate_eval.py`: 모델별 생성 이미지 `outputs/eval/{model}/{set}/{id}.png` (이미 있으면 건너뜀), `eval_set.json`에 선택된 id 기록.
+- `src/eval/metrics.py`: 픽셀 MSE, SSIM(scikit-image), LPIPS(alex), CLIP 이미지 유사도(openai/clip-vit-base-patch32, 생성-정답 코사인; 입력이 HTML이라 이미지-텍스트 CLIP score 대신), OCR 텍스트 일치율(EasyOCR, 정답 이미지 OCR 기준 1-정규화 편집거리, 정답에서 글자가 안 읽히면 제외).
+- `src/eval/report.py`: metrics.csv, summary.json, report.md, grid_{set}.png.
+- requirements: `easyocr==1.7.2` 추가 (opencv-python-headless 등 의존성 설치, torch 변경 없음).
+- 검증: 동일 이미지 → MSE 0 / SSIM 1 / LPIPS 0 / CLIP 1 / OCR 1, 다른 이미지에서 모두 악화 확인.
+- 생성 시간: 로컬 GTX 1660 fp32 약 17~24초/장, 300장 약 2시간.
+
+### 결과 (`outputs/eval/report.md`)
+## short
+
+| 모델 | n | mse ↓ | ssim ↑ | lpips ↓ | clip ↑ | ocr ↑ |
+|---|---|---|---|---|---|---|
+| lora_v8 | 50 | 0.0945 | 0.4658 | 0.8261 | 0.6308 | 0.1495 |
+| phase2_full | 50 | 0.0041 | 0.9681 | 0.0466 | **0.8528** | **0.2305** |
+| phase3_html | 50 | **0.0030** | **0.9810** | **0.0285** | 0.8276 | 0.1466 |
+
+OCR은 정답에서 글자가 읽힌 샘플만 평균한다 (모델별 샘플 수: {'lora_v8': 36, 'phase2_full': 36, 'phase3_html': 36}).
+
+## long
+
+| 모델 | n | mse ↓ | ssim ↑ | lpips ↓ | clip ↑ | ocr ↑ |
+|---|---|---|---|---|---|---|
+| lora_v8 | 50 | 0.1266 | 0.4909 | 0.8153 | 0.5638 | 0.1628 |
+| phase2_full | 50 | 0.0318 | 0.8996 | 0.2384 | 0.7199 | 0.1891 |
+| phase3_html | 50 | **0.0189** | **0.9096** | **0.1634** | **0.7309** | **0.1916** |
+
+OCR은 정답에서 글자가 읽힌 샘플만 평균한다 (모델별 샘플 수: {'lora_v8': 43, 'phase2_full': 43, 'phase3_html': 43}).
+
+
+### 짝 비교 (phase3_html - phase2_full, 같은 샘플, 부트스트랩 95% CI)
+- 긴 HTML: LPIPS phase3 우세 88% (평균 차이 +0.075, CI [+0.056, +0.095]), MSE 우세 80% (+0.013, CI [+0.006, +0.021]). SSIM/CLIP/OCR은 CI가 0을 포함(유의하지 않음).
+- 짧은 HTML: MSE/SSIM/LPIPS는 phase3 우세(62~64%, CI가 0 미포함, 차이는 작음). **CLIP(-0.025, CI [-0.039, -0.012])와 OCR(-0.084, CI [-0.134, -0.036])은 phase2 우세**.
+- 그리드 관찰: 두 full FT 모두 글자는 거의 알아볼 수 없음(가끔 phase2가 단어를 더 비슷하게, 예: "Home" 정확). phase3는 일부 색이 약간 더 진함(주황 배경). LoRA v8은 모든 지표에서 가장 나쁨(얼룩 질감).
+- 한계: OCR은 정답 이미지에서도 작은 글자를 잘못 읽어(예: "Home ['tyoyd' P: Tegjm") 대략적인 참고용. 표본 50개라 작은 차이는 신중히 해석.
+
+### 개선 후보 (CLAUDE.md Phase 4)
+- 글자 품질: 글자 영역 손실 가중치, 해상도 상향(현재 512px, VAE 8배 다운샘플로 작은 글자 손실), VAE fine-tuning.
+- 짧은 HTML 글자에서 phase2가 나은 원인 확인(CLIP 인코더의 자연어 단어 표현 vs CodeT5+ 추정, 미검증).
+- 베이스 모델 변경(SD3/FLUX 등)은 비용이 크므로 후순위.
+
 ## 5. 검증 상태
 
 - `check_env.py` 문법 검사 통과.
@@ -218,5 +262,5 @@ LoRA 본 학습(`outputs/lora_short_v8`, 커밋 623723b 기준, 로컬 백그라
    - UNet full fine-tuning: fp32 + AdamW 기준 약 14GB 필요(추정) → 로컬 6GB 불가. Colab 노트북 준비됨 (4-3절)
    - 256px로 낮춰 실험 반복 속도 4배 (SD1.5는 저해상도 품질이 떨어지는 점 감안)
    - (완료) v8 설정 본 학습: 성공 기준 미달 (4-2절 '본 학습 결과')
-8. (완료) Phase 3 방법 A — 4-4절. 다음은 Phase 4(지표: LPIPS/SSIM/CLIP score/OCR, 고정 검증셋에서 Phase 2·3 버전 비교표).
+8. (완료) Phase 3 방법 A — 4-4절. (완료) Phase 4 평가 — 4-5절. 다음은 개선 후보 중 선택(사용자 결정).
 9. 결과 zip은 `outputs/results_full_short.zip`(Phase 2), `outputs/results_html_long.zip`(Phase 3), 압축은 각각 `outputs/full_short_rental/`, `outputs/html_long_rental/`에 풀어 둠(git 제외, .ipynb_checkpoints 제외).

@@ -18,3 +18,5 @@ scikit-image==0.26.0
 bitsandbytes==0.50.2
 # Phase 3 CodeT5+ 토크나이저를 vocab/merges로 직접 구성 (transformers 5.20에서 저장소 설정을 못 읽음)
 tokenizers==0.23.3
+# Phase 4 OCR 기반 텍스트 일치율 (Tesseract 설치 없이 pip로 사용)
+easyocr==1.7.2

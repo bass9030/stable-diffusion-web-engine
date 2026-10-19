@@ -78,5 +78,19 @@ python scripts/pack_for_colab.py --no-cache --data-dir data/long --extra outputs
 추론은 Phase 2와 같이 `python -m src.infer.generate --full <checkpoints/step_XXXXXX> --html ... --out ...`
 (체크포인트의 config가 codet5p면 CodeT5+ 인코더와 projection을 자동으로 쓴다).
 
+## Phase 4: 평가
+
+고정 검증셋(짧은/긴 HTML val에서 시드로 50개씩, 학습에 쓰지 않음)으로 모델 버전을 나란히 비교한다.
+지표: 픽셀 MSE, SSIM, LPIPS, CLIP 이미지 유사도(생성-정답), OCR 텍스트 일치율(정답에서 읽힌 글자 기준).
+
+```powershell
+# 모델별 생성 이미지 (이미 있으면 건너뜀) → outputs/eval/{model}/{set}/{id}.png
+python -m src.eval.generate_eval --config configs/base.yaml configs/eval.yaml
+# 지표 표(report.md, metrics.csv, summary.json)와 비교 그리드(grid_{set}.png)
+python -m src.eval.report --config configs/base.yaml configs/eval.yaml
+```
+
+비교할 모델은 `configs/eval.yaml`의 `eval.models`에 추가한다.
+
 `check_env.py`는 패키지 import, torch 장치(CUDA/ROCm/MPS/DirectML/CPU), Playwright 렌더링과 렌더 결과 재현성, 디스크 여유 공간을 검사한다.
 `[FAIL]`이 하나라도 있으면 종료 코드 1을 반환한다. GPU 가속이 없는 것은 `[WARN]`이며, 학습은 클라우드 GPU를 쓰는 것을 전제로 한다.
